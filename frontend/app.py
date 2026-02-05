@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import matplotlib.pyplot as plt
 
-API = "http://127.0.0.1:8000"
+API = st.secrets["API_URL"]
 
 st.title("📉 AI Customer Churn Intelligence Platform")
 
@@ -79,3 +79,4 @@ if st.button("Simulate Impact"):
         f"**{res['before']*100:.1f}%** "
         f"to **{res['after']*100:.1f}%**"
     )
+
