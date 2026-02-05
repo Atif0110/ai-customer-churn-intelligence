@@ -1,0 +1,31 @@
+from fastapi import FastAPI
+from backend.services.orchestrator import run_analysis
+from backend.services.ds_service import predict
+
+app = FastAPI()
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/analyze")
+def analyze(v1: float, v2: float, v3: float):
+    return run_analysis([v1, v2, v3])
+
+
+@app.post("/simulate")
+def simulate(v1: float, v2: float, v3: float, change: float):
+
+    base = predict([v1, v2, v3])
+    new = predict([v1 * (1 + change), v2, v3])
+
+    return {
+        "before": base["churn_probability"],
+        "after": new["churn_probability"],
+        "impact": round(
+            new["churn_probability"]
+            - base["churn_probability"], 3
+        ),
+    }

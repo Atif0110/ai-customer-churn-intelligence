@@ -1,0 +1,23 @@
+# venv
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Env secrets
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Data files
+data/history.json
