@@ -1,13 +1,15 @@
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from backend.services.orchestrator import run_analysis
 from backend.services.ds_service import predict
 
 app = FastAPI()
 
 
-@app.get("/health")
+# Allow both GET and HEAD for monitoring services
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
-    return {"status": "ok"}
+    return JSONResponse(content={"status": "ok"})
 
 
 @app.post("/analyze")
