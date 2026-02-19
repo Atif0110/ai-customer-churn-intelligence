@@ -3,13 +3,18 @@ from fastapi.responses import JSONResponse
 from backend.services.orchestrator import run_analysis
 from backend.services.ds_service import predict
 
-app = FastAPI()
+app = FastAPI(
+    title="AI Customer Churn Decision Intelligence API",
+    version="1.0.0"
+)
 
+@app.get("/")
+def root():
+    return {"message": "AI Customer Churn API is running"}
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return JSONResponse(content={"status": "ok"})
-
 
 @app.post("/analyze")
 def analyze(v1: float, v2: float, v3: float):
@@ -26,8 +31,6 @@ def simulate(v1: float, v2: float, v3: float, change: float):
         "before": base["churn_probability"],
         "after": new["churn_probability"],
         "impact": round(
-            new["churn_probability"]
-            - base["churn_probability"], 3
+            new["churn_probability"] - base["churn_probability"], 3
         ),
     }
-
