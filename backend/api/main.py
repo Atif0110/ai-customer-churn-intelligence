@@ -6,7 +6,6 @@ from backend.services.ds_service import predict
 app = FastAPI()
 
 
-# Allow both GET and HEAD for monitoring services
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return JSONResponse(content={"status": "ok"})
@@ -31,3 +30,4 @@ def simulate(v1: float, v2: float, v3: float, change: float):
             - base["churn_probability"], 3
         ),
     }
+
