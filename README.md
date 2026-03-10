@@ -1,26 +1,194 @@
-# 📉 AI Customer Churn Decision Intelligence Platform
+# 📉 AI Customer Churn Intelligence Platform
 
-An end-to-end **Decision Intelligence** system that combines **Data Science + Generative AI** to predict customer churn, explain risk drivers, and recommend retention actions.
+### ML + Generative AI System for Churn Prediction, Explanation, and Retention Strategy
 
-This project demonstrates how **Machine Learning and LLMs can work together to support real business decisions — not just predictions.**
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat\&logo=python\&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=flat\&logo=fastapi\&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.x-FF4B4B?style=flat\&logo=streamlit\&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-1.x-F7931E?style=flat\&logo=scikit-learn\&logoColor=white)
+![Groq](https://img.shields.io/badge/LLM-Groq%20%7C%20Llama%203.1-8B-blueviolet?style=flat)
+![License](https://img.shields.io/badge/License-MIT-green?style=flat)
+
+An end-to-end **Decision Intelligence platform** that combines **Machine Learning + Generative AI** to predict customer churn, explain risk drivers, and recommend targeted retention strategies.
+
+> **Beyond prediction — this platform turns churn scores into business actions.**
+
+---
+
+# ⭐ Key Features
+
+• ML-based churn prediction using **Logistic Regression**
+• Rule-based **driver detection** for interpretable churn signals
+• **LLM-generated retention strategies** using Llama 3.1
+• **Scenario simulation** to estimate the impact of interventions
+• **FastAPI backend** with modular service architecture
+• **Interactive Streamlit dashboard** for analysts
+• **LLM provider abstraction** (Groq / OpenAI / Gemini ready)
+
+---
+
+# ⚡ Quick Start
+
+Clone and run the project in a few commands.
+
+```bash
+git clone https://github.com/your-username/ai-customer-churn-intelligence.git
+cd ai-customer-churn-intelligence
+
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# Mac/Linux
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+Start backend:
+
+```bash
+uvicorn backend.api.main:app --reload
+```
+
+Start frontend:
+
+```bash
+streamlit run frontend/app.py
+```
+
+Backend → http://127.0.0.1:8000
+Frontend → http://localhost:8501
+
+---
+
+# 🎬 Demo
+
+### Customer Risk Dashboard
+
+*(Add screenshot here)*
+
+### Churn Risk Analysis
+
+*(Add screenshot here)*
+
+### Intervention Simulation
+
+*(Add screenshot here)*
+
+Tip: record a **10-second GIF** of the app using Loom or ScreenToGif and embed it here.
+
+---
+
+# 📋 Table of Contents
+
+* Overview
+* Architecture
+* Tech Stack
+* Project Structure
+* How It Works
+* API Reference
+* Installation
+* Future Work
+* License
 
 ---
 
 # 🚀 Overview
 
-Customer churn is a major challenge for subscription and SaaS businesses.  
-Predicting churn is useful — but **acting on it is what creates real value.**
+Customer churn is one of the most expensive problems for subscription businesses.
 
-This platform goes beyond prediction by providing:
+Many ML systems stop at a **prediction score**.
+Business teams actually need answers to three questions:
 
-- ✅ Churn probability scoring  
-- ✅ Risk segmentation (Low / Medium / High)  
-- ✅ Key driver identification  
-- ✅ AI-generated retention advice  
-- ✅ What-if scenario simulation  
-- ✅ Full-stack deployment (API + UI)
+| Question                  | Platform Output                     |
+| ------------------------- | ----------------------------------- |
+| **Who is at risk?**       | Churn probability score + risk tier |
+| **Why are they at risk?** | Identified churn drivers            |
+| **What should we do?**    | AI-generated retention strategy     |
+| **What if we act?**       | Simulation of intervention impact   |
 
-It simulates a real **Decision Intelligence workflow** used in modern companies.
+This project demonstrates a **Decision Intelligence workflow** used by modern data teams to move from **prediction → explanation → action**.
+
+---
+
+# 🏗 Architecture
+
+```
+Streamlit Frontend
+        │
+        │ HTTP
+        ▼
+FastAPI Backend
+        │
+        ▼
+Orchestrator Service
+        │
+ ┌──────────────┬───────────────┐
+ │ Data Science │  GenAI Layer  │
+ │   Service    │  (LLM)        │
+ └──────────────┴───────────────┘
+        │
+        ▼
+History Logging Service
+        │
+        ▼
+LLM Provider Factory
+(Groq / OpenAI / Gemini)
+```
+
+Design principles:
+
+• Modular services
+• Provider-agnostic LLM layer
+• Clear separation of concerns
+• Replaceable components
+
+---
+
+# 🛠 Tech Stack
+
+| Layer         | Technology         |
+| ------------- | ------------------ |
+| Frontend      | Streamlit          |
+| Backend       | FastAPI            |
+| ML Model      | scikit-learn       |
+| LLM           | Llama 3.1 via Groq |
+| Visualization | Matplotlib         |
+| Config        | python-dotenv      |
+| Language      | Python 3.10+       |
+
+---
+
+# 📁 Project Structure
+
+```
+ai-customer-churn-intelligence/
+│
+├── backend/
+│   ├── api/
+│   │   └── main.py
+│   │
+│   ├── services/
+│   │   ├── ds_service.py
+│   │   ├── genai_service.py
+│   │   ├── orchestrator.py
+│   │   └── history_service.py
+│   │
+│   └── llm/
+│       ├── base.py
+│       ├── factory.py
+│       └── providers/
+│           └── groq_provider.py
+│
+├── frontend/
+│   └── app.py
+│
+├── requirements.txt
+├── .env.example
+└── README.md
+```
 
 ---
 
@@ -28,124 +196,122 @@ It simulates a real **Decision Intelligence workflow** used in modern companies.
 
 ## 1️⃣ Data Science Layer
 
-A **Logistic Regression model** predicts churn using:
+A **Logistic Regression model** predicts churn probability using:
 
-- Monthly usage hours  
-- Support tickets  
-- Customer tenure  
+| Feature         | Meaning               |
+| --------------- | --------------------- |
+| Usage Hours     | Product engagement    |
+| Support Tickets | Customer support load |
+| Tenure          | Time as a customer    |
 
-### Outputs
-- Churn probability  
-- Risk level classification  
+Risk tiers:
 
----
+🔴 High → >60%
+🟡 Medium → 30–60%
+🟢 Low → <30%
 
-## 2️⃣ Explainability Layer
+Driver detection identifies signals such as:
 
-Rule-based logic identifies key churn drivers:
-
-- High support volume  
-- Low product usage  
-- Short tenure  
-
-This makes predictions **interpretable for business users.**
+• Low product usage
+• High support volume
+• Short customer tenure
 
 ---
 
-## 3️⃣ GenAI Layer
+## 2️⃣ GenAI Layer
 
-A Large Language Model (Groq / OpenAI / Gemini compatible) generates:
+The model output is passed to an LLM that acts as a **customer retention strategist**.
 
-- Churn reasoning  
-- Retention strategies  
-- Business impact analysis  
+The AI generates:
 
-This turns raw predictions into **actionable insights.**
+1. Explanation of churn risk
+2. Recommended retention actions
+3. Business impact summary
 
----
-
-## 4️⃣ Decision Intelligence Layer
-
-Scenario simulation allows users to test:
-
-- "What if usage increases?"  
-- "What if engagement improves?"  
-
-This supports **proactive decision-making.**
+Temperature is kept low to ensure **consistent, structured responses**.
 
 ---
 
-# 🏗 Architecture
+## 3️⃣ Scenario Simulation
 
-Streamlit UI
-↓
-FastAPI Backend
-↓
-Orchestrator Service
-├── DS Model (scikit-learn)
-├── Explainability Logic
-└── LLM Provider Layer
+The `/simulate` endpoint models intervention impact.
 
+Example:
 
-- Modular design  
-- Provider-agnostic LLM integration  
-- Easy to extend and maintain  
+```
+Before: 78% churn risk
+After intervention: 51%
 
-### Supported LLM Providers
+Impact: −27%
+```
 
-- Groq  
-- OpenAI  
-- Gemini  
-- Local models  
+This allows teams to **test strategies before executing them.**
 
 ---
 
-# 📁 Project Structure
+# 📡 API Reference
 
-backend/
-│
-├── api/ # FastAPI endpoints
-├── services/ # DS + GenAI logic
-├── llm/ # LLM provider abstraction
-├── ml/ # Model logic
-└── data/ # History storage
+Base URL
 
-frontend/
-└── app.py # Streamlit UI
-
----
-
-# ⚙️ Installation & Setup
-
-## 1️⃣ Create Virtual Environment
-
-```bash
-python -m venv venv
-venv\Scripts\activate
-
-2️⃣ Install Dependencies
-pip install -r requirements.txt
-
-3️⃣ Configure Environment Variables
-
-Create a .env file:
-
-GROQ_API_KEY=your_key_here
-LLM_PROVIDER=groq
-
-▶️ Running the Project
-Start Backend
-uvicorn backend.api.main:app --reload
-
-
-Backend runs at:
-
+```
 http://127.0.0.1:8000
+```
 
-Start Frontend
-streamlit run frontend/app.py
+| Method | Endpoint  | Description             |
+| ------ | --------- | ----------------------- |
+| GET    | /         | Root                    |
+| GET    | /health   | Backend status          |
+| POST   | /analyze  | Full churn analysis     |
+| POST   | /simulate | Intervention simulation |
 
+Example:
 
-UI opens at:
+```
+POST /analyze?v1=2&v2=5&v3=4
+```
 
-http://localhost:8501
+Response:
+
+```json
+{
+  "ds_output": {
+    "churn_probability": 0.87,
+    "risk_level": "High",
+    "drivers": ["Low usage", "High support load"]
+  },
+  "explanation": "..."
+}
+```
+
+---
+
+# 🔭 Future Work
+
+• Replace synthetic data with a real churn dataset
+• Add SHAP model explainability
+• Support additional LLM providers
+• Add batch scoring endpoint
+• Docker deployment
+• Authentication layer
+
+---
+
+# 📄 License
+
+MIT License
+
+---
+
+# 👨‍💻 Author
+
+**Atif**
+
+Machine Learning • Data Systems • Decision Intelligence
+
+GitHub
+https://github.com/your-username
+
+LinkedIn
+https://linkedin.com/in/your-handle
+
+Open to **Data Analyst / Data Scientist / ML Engineer roles**.
