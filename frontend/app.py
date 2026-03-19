@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import matplotlib.pyplot as plt
 
-API = "http://127.0.0.1:8000"
+API = "https://ai-customer-churn-intelligence.onrender.com"
 
 st.title("📉 AI Customer Churn Intelligence Platform")
 
