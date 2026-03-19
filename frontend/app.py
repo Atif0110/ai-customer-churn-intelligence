@@ -184,9 +184,9 @@ def render_header():
     with col3:
         backend_status = check_backend()
         if backend_status:
-            st.success("✅ Backend Connected", icon="✅")
+            st.success(" Backend Connected", icon="✅")
         else:
-            st.error("❌ Backend Offline", icon="❌")
+            st.error(" Backend Offline", icon="❌")
 
 def single_analysis_page():
     st.markdown("## 👤 Single Customer Analysis")
@@ -194,11 +194,11 @@ def single_analysis_page():
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        v1 = st.slider("Monthly Usage Hours", 0.0, 500.0, 50.0, step=5.0, key="usage")
+        v1 = st.slider("Monthly Usage Hours", 0.0, 100.0, 50.0, step=5.0, key="usage")
     with col2:
-        v2 = st.slider("Support Tickets", 0.0, 50.0, 5.0, step=1.0, key="tickets")
+        v2 = st.slider("Support Tickets", 0.0, 15.0, 5.0, step=1.0, key="tickets")
     with col3:
-        v3 = st.slider("Tenure (Months)", 0.0, 120.0, 24.0, step=1.0, key="tenure")
+        v3 = st.slider("Tenure (Months)", 0.0, 60.0, 24.0, step=1.0, key="tenure")
     
     st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
     
