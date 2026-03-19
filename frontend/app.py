@@ -4,7 +4,6 @@ import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 from datetime import datetime
-import time
 
 st.set_page_config(
     page_title="Churn Intelligence",
@@ -26,7 +25,6 @@ st.markdown("""
 
 API = st.secrets.get("API_URL", "https://ai-customer-churn-intelligence.onrender.com")
 
-@st.cache_data(ttl=300)
 def check_backend():
     try:
         r = requests.get(f"{API}/health", timeout=5)
@@ -47,19 +45,6 @@ def get_risk_label(probability: float) -> str:
     elif probability >= 0.3:
         return "🟡 MEDIUM RISK"
     return "🟢 LOW RISK"
-
-def render_header():
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        st.markdown("# 📊 Churn Intelligence Platform")
-        st.markdown("*AI-Powered Prediction & Retention Strategy*")
-    with col3:
-        backend_status = check_backend()
-        if backend_status:
-            st.success("✅ Backend Connected", icon="✅")
-        else:
-            st.error("❌ Backend Offline", icon="❌")
-            st.info("Backend is loading. Please refresh in 30 seconds.")
 
 def create_gauge_chart(prob: float):
     fig = go.Figure(go.Indicator(
@@ -152,7 +137,7 @@ def analyze_customer(v1: float, v2: float, v3: float):
         return res.json()
     
     except requests.Timeout:
-        st.error("⏱️ Request timeout. Backend might be loading. Please try again in 30 seconds.")
+        st.error("⏱️ Request timeout. Backend might be loading. Please try again.")
         return None
     except requests.ConnectionError:
         st.error("🔌 Connection error. Check if backend is online.")
@@ -191,23 +176,33 @@ def simulate_intervention(v1: float, v2: float, v3: float, change_percent: float
         st.error(f"❌ Simulation error: {str(e)}")
         return None
 
+def render_header():
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        st.markdown("# 📊 Churn Intelligence Platform")
+        st.markdown("*AI-Powered Prediction & Retention Strategy*")
+    with col3:
+        backend_status = check_backend()
+        if backend_status:
+            st.success("✅ Backend Connected", icon="✅")
+        else:
+            st.error("❌ Backend Offline", icon="❌")
+
 def single_analysis_page():
     st.markdown("## 👤 Single Customer Analysis")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        v1 = st.slider("Monthly Usage Hours", 0.0, 500.0, 50.0, step=5.0)
+        v1 = st.slider("Monthly Usage Hours", 0.0, 500.0, 50.0, step=5.0, key="usage")
     with col2:
-        v2 = st.slider("Support Tickets", 0.0, 50.0, 5.0, step=1.0)
+        v2 = st.slider("Support Tickets", 0.0, 50.0, 5.0, step=1.0, key="tickets")
     with col3:
-        v3 = st.slider("Tenure (Months)", 0.0, 120.0, 24.0, step=1.0)
+        v3 = st.slider("Tenure (Months)", 0.0, 120.0, 24.0, step=1.0, key="tenure")
     
-    col_btn1, col_btn2, col_btn3 = st.columns([1, 4, 4])
-    with col_btn1:
-        analyze_btn = st.button("🔍 Analyze", use_container_width=True, key="analyze_btn")
+    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
     
-    if analyze_btn:
+    if st.button("🔍 Analyze", use_container_width=True, key="analyze_btn"):
         result = analyze_customer(v1, v2, v3)
         
         if result:
@@ -231,10 +226,10 @@ def single_analysis_page():
             
             chart_col1, chart_col2 = st.columns([1.2, 1])
             with chart_col1:
-                st.plotly_chart(create_gauge_chart(prob), use_container_width=True)
+                st.plotly_chart(create_gauge_chart(prob), use_container_width=True, key="gauge")
             with chart_col2:
                 if drivers:
-                    st.plotly_chart(create_driver_chart(drivers), use_container_width=True)
+                    st.plotly_chart(create_driver_chart(drivers), use_container_width=True, key="drivers")
             
             st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
             st.markdown("### 🤖 AI-Generated Retention Strategy")
@@ -265,7 +260,7 @@ def single_analysis_page():
                             effectiveness = (abs(impact) / prob * 100) if prob > 0 else 0
                             st.metric("Improvement", f"{abs(impact)*100:.1f}%")
                         
-                        st.plotly_chart(create_comparison_chart(before_prob, after_prob), use_container_width=True)
+                        st.plotly_chart(create_comparison_chart(before_prob, after_prob), use_container_width=True, key="comparison")
 
 def batch_upload_page():
     st.markdown("## 📁 Batch Customer Analysis")
