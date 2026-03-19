@@ -25,6 +25,12 @@ st.markdown("""
 
 API = st.secrets.get("API_URL", "https://ai-customer-churn-intelligence.onrender.com")
 
+# Initialize session state variables
+if "analysis_result" not in st.session_state:
+    st.session_state.analysis_result = None
+if "sim_slider_value" not in st.session_state:
+    st.session_state.sim_slider_value = 10
+
 def check_backend():
     try:
         r = requests.get(f"{API}/health", timeout=5)
@@ -184,9 +190,9 @@ def render_header():
     with col3:
         backend_status = check_backend()
         if backend_status:
-            st.success(" Backend Connected", icon="✅")
+            st.success("✅ Backend Connected", icon="✅")
         else:
-            st.error(" Backend Offline", icon="❌")
+            st.error("❌ Backend Offline", icon="❌")
 
 def single_analysis_page():
     st.markdown("## 👤 Single Customer Analysis")
@@ -194,101 +200,108 @@ def single_analysis_page():
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        v1 = st.slider("Monthly Usage Hours", 0.0, 100.0, 50.0, step=5.0, key="usage")
+        v1 = st.slider("Monthly Usage Hours", 0.0, 100.0, 50.0, step=5.0, key="usage_slider")
     with col2:
-        v2 = st.slider("Support Tickets", 0.0, 15.0, 5.0, step=1.0, key="tickets")
+        v2 = st.slider("Support Tickets", 0.0, 15.0, 5.0, step=1.0, key="tickets_slider")
     with col3:
-        v3 = st.slider("Tenure (Months)", 0.0, 60.0, 24.0, step=1.0, key="tenure")
+        v3 = st.slider("Tenure (Months)", 0.0, 60.0, 24.0, step=1.0, key="tenure_slider")
     
     st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
     
     if st.button("🔍 Analyze", use_container_width=True, key="analyze_btn"):
         result = analyze_customer(v1, v2, v3)
-        
         if result:
-            ds = result.get("ds_output", {})
-            prob = ds.get("churn_probability", 0)
-            risk = ds.get("risk_level", "Unknown")
-            drivers = ds.get("drivers", [])
-            explanation = result.get("explanation", "")
+            st.session_state.analysis_result = {
+                "data": result,
+                "v1": v1,
+                "v2": v2,
+                "v3": v3
+            }
+    
+    # Display analysis results if available
+    if st.session_state.analysis_result is not None:
+        result = st.session_state.analysis_result["data"]
+        stored_v1 = st.session_state.analysis_result["v1"]
+        stored_v2 = st.session_state.analysis_result["v2"]
+        stored_v3 = st.session_state.analysis_result["v3"]
+        
+        ds = result.get("ds_output", {})
+        prob = ds.get("churn_probability", 0)
+        risk = ds.get("risk_level", "Unknown")
+        drivers = ds.get("drivers", [])
+        explanation = result.get("explanation", "")
+        
+        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+        
+        metric_col1, metric_col2, metric_col3 = st.columns(3)
+        with metric_col1:
+            st.metric("Churn Probability", f"{prob*100:.1f}%")
+        with metric_col2:
+            st.markdown(f"<div style='text-align: center; padding-top: 10px;'><p style='font-size: 12px; margin-bottom: 5px;'>RISK LEVEL</p><p class='risk-{'high' if prob >= 0.6 else 'medium' if prob >= 0.3 else 'low'}'>{get_risk_label(prob)}</p></div>", unsafe_allow_html=True)
+        with metric_col3:
+            st.metric("Drivers Identified", len(drivers))
+        
+        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+        
+        chart_col1, chart_col2 = st.columns([1.2, 1])
+        with chart_col1:
+            st.plotly_chart(create_gauge_chart(prob), use_container_width=True, key="gauge_chart")
+        with chart_col2:
+            if drivers:
+                st.plotly_chart(create_driver_chart(drivers), use_container_width=True, key="driver_chart")
+        
+        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+        st.markdown("### 🤖 AI-Generated Retention Strategy")
+        st.info(explanation)
+        
+        # ============ WHAT-IF SIMULATION - FIXED PROPERLY ============
+        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+        st.markdown("### 🎯 What-If Simulation")
+        
+        sim_col1, sim_col2 = st.columns([1, 1])
+        
+        with sim_col1:
+            # Slider with persistent session state - NO PAGE RELOAD
+            slider_value = st.slider(
+                "Increase Usage by (%)",
+                0, 100,
+                st.session_state.sim_slider_value,
+                step=5,
+                key="simulation_slider_final"
+            )
+            st.session_state.sim_slider_value = slider_value
+        
+        with sim_col2:
+            simulate_btn = st.button(
+                "📊 Simulate Impact",
+                use_container_width=True,
+                key="simulate_btn_final"
+            )
+        
+        # Show simulation results
+        if simulate_btn:
+            sim = simulate_intervention(stored_v1, stored_v2, stored_v3, st.session_state.sim_slider_value)
             
-            st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-            
-            metric_col1, metric_col2, metric_col3 = st.columns(3)
-            with metric_col1:
-                st.metric("Churn Probability", f"{prob*100:.1f}%")
-            with metric_col2:
-                st.markdown(f"<div style='text-align: center; padding-top: 10px;'><p style='font-size: 12px; margin-bottom: 5px;'>RISK LEVEL</p><p class='risk-{'high' if prob >= 0.6 else 'medium' if prob >= 0.3 else 'low'}'>{get_risk_label(prob)}</p></div>", unsafe_allow_html=True)
-            with metric_col3:
-                st.metric("Drivers Identified", len(drivers))
-            
-            st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-            
-            chart_col1, chart_col2 = st.columns([1.2, 1])
-            with chart_col1:
-                st.plotly_chart(create_gauge_chart(prob), use_container_width=True, key="gauge")
-            with chart_col2:
-                if drivers:
-                    st.plotly_chart(create_driver_chart(drivers), use_container_width=True, key="drivers")
-            
-            st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-            st.markdown("### 🤖 AI-Generated Retention Strategy")
-            st.info(explanation)
-            
-            # ============ WHAT-IF SIMULATION - FIXED ============
-            st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-            st.markdown("### 🎯 What-If Simulation")
-            
-            # Use session state to prevent scroll on slider
-            if "sim_change" not in st.session_state:
-                st.session_state.sim_change = 10
-            
-            sim_col1, sim_col2 = st.columns([1, 1])
-            
-            with sim_col1:
-                # This slider will NOT trigger page reload
-                new_change = st.slider(
-                    "Increase Usage by (%)",
-                    0, 100, 
-                    st.session_state.sim_change,
-                    step=5,
-                    key="sim_slider_input"
-                )
-                # Update session state
-                st.session_state.sim_change = new_change
-            
-            with sim_col2:
-                simulate_button = st.button(
-                    "📊 Simulate Impact",
-                    use_container_width=True,
-                    key="sim_button"
-                )
-            
-            # Only show results if button was clicked
-            if simulate_button:
-                sim = simulate_intervention(v1, v2, v3, st.session_state.sim_change)
+            if sim:
+                before_prob = sim.get("before", prob)
+                after_prob = sim.get("after", prob)
+                impact = sim.get("impact", 0)
                 
-                if sim:
-                    before_prob = sim.get("before", prob)
-                    after_prob = sim.get("after", prob)
-                    impact = sim.get("impact", 0)
-                    
-                    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-                    
-                    sim_metric1, sim_metric2, sim_metric3 = st.columns(3)
-                    with sim_metric1:
-                        st.metric("New Probability", f"{after_prob*100:.1f}%")
-                    with sim_metric2:
-                        st.metric("Risk Change", f"{impact*100:.1f}%")
-                    with sim_metric3:
-                        effectiveness = (abs(impact) / prob * 100) if prob > 0 else 0
-                        st.metric("Improvement", f"{abs(impact)*100:.1f}%")
-                    
-                    st.plotly_chart(
-                        create_comparison_chart(before_prob, after_prob),
-                        use_container_width=True,
-                        key="comparison_chart"
-                    )
+                st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+                
+                sim_metric1, sim_metric2, sim_metric3 = st.columns(3)
+                with sim_metric1:
+                    st.metric("New Probability", f"{after_prob*100:.1f}%")
+                with sim_metric2:
+                    st.metric("Risk Change", f"{impact*100:.1f}%")
+                with sim_metric3:
+                    st.metric("Improvement", f"{abs(impact)*100:.1f}%")
+                
+                st.plotly_chart(
+                    create_comparison_chart(before_prob, after_prob),
+                    use_container_width=True,
+                    key="comparison_final"
+                )
 
 def batch_upload_page():
     st.markdown("## 📁 Batch Customer Analysis")
