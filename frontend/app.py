@@ -24,7 +24,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-API = "https://ai-customer-churn-intelligence.onrender.com"
+API = st.secrets.get("API_URL", "https://ai-customer-churn-intelligence.onrender.com")
 
 @st.cache_data(ttl=300)
 def check_backend():
