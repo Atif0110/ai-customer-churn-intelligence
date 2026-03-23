@@ -190,9 +190,9 @@ def render_header():
     with col3:
         backend_status = check_backend()
         if backend_status:
-            st.success("✅ Backend Connected", icon="✅")
+            st.success("Backend Connected", icon="✅")
         else:
-            st.error("❌ Backend Offline", icon="❌")
+            st.error("Backend Offline", icon="❌")
 
 def single_analysis_page():
     st.markdown("## 👤 Single Customer Analysis")
