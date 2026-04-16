@@ -38,7 +38,7 @@ def root():
         "docs": "/docs"
     }
 
-@app.get("/health")
+@app.get("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok", "message": "Backend is healthy"}
 
