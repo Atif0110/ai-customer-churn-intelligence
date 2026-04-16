@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # -------------------- App --------------------
 app = FastAPI(
     title="AI Customer Churn Decision Intelligence API",
-    version="1.0.1",
+    version="1.0.2",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -24,21 +24,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -------------------- Startup Check --------------------
+# -------------------- Startup --------------------
 @app.on_event("startup")
 def startup_event():
     logger.info("🚀 FastAPI app started successfully")
 
-# -------------------- Routes --------------------
+# -------------------- Root --------------------
 @app.get("/")
 def root():
     return {
         "message": "AI Customer Churn Intelligence API is running",
-        "version": "1.0.1",
+        "version": "1.0.2",
         "docs": "/docs"
     }
 
-@app.get("/health", methods=["GET", "HEAD"])
+# -------------------- Health (FIXED) --------------------
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok", "message": "Backend is healthy"}
 
@@ -59,7 +60,7 @@ def analyze(v1: float, v2: float, v3: float):
 
         result = run_analysis([v1, v2, v3])
 
-        logger.info(f"Analysis complete")
+        logger.info("Analysis complete")
         return result
 
     except HTTPException:
@@ -101,7 +102,7 @@ def simulate(v1: float, v2: float, v3: float, change: float):
             ),
         }
 
-        logger.info(f"Simulation complete")
+        logger.info("Simulation complete")
         return response
 
     except HTTPException:
