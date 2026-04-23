@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 from datetime import datetime
+import time
 
 st.set_page_config(
     page_title="Churn Intelligence",
@@ -322,7 +323,7 @@ def batch_upload_page():
             df_renamed = df.rename(columns={old: new for old, new in columns_map.items() if old in df.columns})
             
             if 'v1' not in df_renamed.columns or 'v2' not in df_renamed.columns or 'v3' not in df_renamed.columns:
-                st.error("❌ CSV must have: v1, v2, v3 (or usage_hours, support_tickets, tenure_months)")
+                st.error("❌ CSV must have: v1, v2, v3")
                 return
             
             st.info(f"Processing {len(df_renamed)} customers...")
@@ -347,6 +348,9 @@ def batch_upload_page():
                         "Risk": ds.get("risk_level", "Unknown")
                     })
                 
+               
+                time.sleep(0.5)
+
                 progress.progress((idx + 1) / len(df_renamed))
             
             if results:
