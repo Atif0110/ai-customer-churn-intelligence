@@ -50,10 +50,10 @@ def analyze(v1: float, v2: float, v3: float):
         # Lazy import (prevents startup crash)
         from backend.services.orchestrator import run_analysis
 
-        if not (0 <= v1 <= 1000 and 0 <= v2 <= 100 and 0 <= v3 <= 120):
+        if not (0 <= v1 <= 100 and 0 <= v2 <= 15 and 0 <= v3 <= 60):
             raise HTTPException(
                 status_code=400,
-                detail="Invalid values. Expected: 0≤v1≤1000, 0≤v2≤100, 0≤v3≤120"
+                detail="Invalid values. Expected: 0≤v1≤100, 0≤v2≤15, 0≤v3≤60"
             )
 
         logger.info(f"Analyzing: v1={v1}, v2={v2}, v3={v3}")
