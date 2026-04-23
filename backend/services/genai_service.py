@@ -27,4 +27,7 @@ Explain:
 Be concise and business-friendly.
 """
 
-    return llm.generate(prompt)
+    try:
+        return llm.generate(prompt)
+    except Exception as e:
+        return f"Explanation unavailable: {str(e)}"
