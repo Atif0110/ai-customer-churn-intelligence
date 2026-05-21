@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
+import os
 
 # -------------------- Logging --------------------
 logging.basicConfig(level=logging.INFO)
@@ -38,7 +39,7 @@ def root():
         "docs": "/docs"
     }
 
-# -------------------- Health (FIXED) --------------------
+# -------------------- Health --------------------
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok", "message": "Backend is healthy"}
@@ -124,4 +125,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 # -------------------- Local Run --------------------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend.api.main:app", host="0.0.0.0", port=8000, reload=True)
+
+    port = int(os.environ.get("PORT", 8000))
+
+    uvicorn.run(
+        "backend.api.main:app",
+        host="0.0.0.0",
+        port=port
+    )
