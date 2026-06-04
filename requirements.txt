@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-pydanti
+pydantic
 streamlit
 requests
 plotly
