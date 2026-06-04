@@ -1,430 +1,651 @@
-import streamlit as st
-import requests
-import plotly.graph_objects as go
-import plotly.express as px
-import pandas as pd
-from datetime import datetime
-import time
+from __future__ import annotations
 
+import logging
+import time
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, Optional
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import requests
+import streamlit as st
+
+# ── Page config (must be first Streamlit call) ──────────────────────────────
 st.set_page_config(
     page_title="Churn Intelligence",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
+logger = logging.getLogger(__name__)
+
+# ── CSS ─────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    [data-testid="stMetricValue"] { font-size: 32px; font-weight: 800; }
-    [data-testid="stMetricLabel"] { font-size: 13px; }
-    .risk-high { color: #ef4444; font-weight: 700; }
-    .risk-medium { color: #f59e0b; font-weight: 700; }
-    .risk-low { color: #10b981; font-weight: 700; }
-    .section-divider { margin: 30px 0; border-top: 2px solid #e0e0e0; }
+    /* ── Typography & base ── */
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono&display=swap');
+
+    html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
+
+    /* ── Metric cards ── */
+    [data-testid="stMetricValue"] { font-size: 30px; font-weight: 700; }
+    [data-testid="stMetricLabel"] { font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: .05em; }
+
+    /* ── Risk callout boxes ── */
+    .risk-critical { background:#fef2f2; border-left:4px solid #dc2626; padding:16px 20px; border-radius:6px; }
+    .risk-high     { background:#fff7ed; border-left:4px solid #ea580c; padding:16px 20px; border-radius:6px; }
+    .risk-medium   { background:#fefce8; border-left:4px solid #ca8a04; padding:16px 20px; border-radius:6px; }
+    .risk-low      { background:#f0fdf4; border-left:4px solid #16a34a; padding:16px 20px; border-radius:6px; }
+
+    /* ── Driver pills ── */
+    .driver-pill {
+        display: inline-block;
+        background: #f3f4f6;
+        border: 1px solid #e5e7eb;
+        border-radius: 20px;
+        padding: 4px 14px;
+        font-size: 13px;
+        font-weight: 500;
+        margin: 3px 4px 3px 0;
+        color: #374151;
+    }
+
+    /* ── Section divider ── */
+    .divider { margin: 28px 0; border-top: 1px solid #e5e7eb; }
+
+    /* ── Header band ── */
+    .header-band {
+        background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+        color: white;
+        padding: 32px 36px;
+        border-radius: 12px;
+        margin-bottom: 28px;
+    }
+    .header-band h1 { margin: 0 0 6px 0; font-size: 26px; font-weight: 700; }
+    .header-band p  { margin: 0; opacity: .75; font-size: 14px; }
+
+    /* ── Action card ── */
+    .action-card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 16px 20px;
+        margin-bottom: 10px;
+    }
+    .action-card strong { color: #1e3a5f; }
 </style>
 """, unsafe_allow_html=True)
 
-API = st.secrets.get("API_URL", "https://ai-customer-churn-intelligence.onrender.com")
 
-# Initialize session state variables
-if "analysis_result" not in st.session_state:
-    st.session_state.analysis_result = None
-if "sim_slider_value" not in st.session_state:
-    st.session_state.sim_slider_value = 10
+# ── Config ───────────────────────────────────────────────────────────────────
+try:
+    API_URL = st.secrets["API_URL"]
+except (KeyError, FileNotFoundError):
+    API_URL = "https://ai-customer-churn-intelligence.onrender.com"
 
-def check_backend():
+TIMEOUT = 30   # seconds
+
+
+# ── Session state ─────────────────────────────────────────────────────────────
+class _S(str, Enum):
+    IDLE    = "idle"
+    LOADING = "loading"
+    ERROR   = "error"
+    SUCCESS = "success"
+
+
+def _init_state() -> None:
+    defaults = {
+        "result":       None,
+        "state":        _S.IDLE,
+        "error_msg":    None,
+        "last_run":     None,
+        "analyses_done": 0,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+
+# ── Backend communication ─────────────────────────────────────────────────────
+def _backend_ok() -> bool:
     try:
-        r = requests.get(f"{API}/health", timeout=5)
+        r = requests.get(f"{API_URL}/health", timeout=5)
         return r.status_code == 200
-    except:
+    except Exception:
         return False
 
-def get_risk_color(probability: float) -> str:
-    if probability >= 0.6:
-        return "#ef4444"
-    elif probability >= 0.3:
-        return "#f59e0b"
-    return "#10b981"
 
-def get_risk_label(probability: float) -> str:
-    if probability >= 0.6:
-        return "🔴 HIGH RISK"
-    elif probability >= 0.3:
-        return "🟡 MEDIUM RISK"
-    return "🟢 LOW RISK"
+def _analyze(v1: float, v2: float, v3: float) -> Dict[str, Any]:
+    r = requests.post(
+        f"{API_URL}/analyze",
+        params={"v1": v1, "v2": v2, "v3": v3},
+        timeout=TIMEOUT,
+    )
+    if r.status_code == 200:
+        return r.json()
+    err = r.json().get("error", r.json().get("detail", "Backend error"))
+    raise ValueError(err) if r.status_code == 400 else Exception(err)
 
-def create_gauge_chart(prob: float):
+
+def _simulate(v1: float, v2: float, v3: float, change: float) -> Dict[str, Any]:
+    r = requests.post(
+        f"{API_URL}/simulate",
+        params={"v1": v1, "v2": v2, "v3": v3, "change": change / 100},
+        timeout=TIMEOUT,
+    )
+    if r.status_code == 200:
+        return r.json()
+    err = r.json().get("error", r.json().get("detail", "Simulation failed"))
+    raise Exception(err)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def _risk_emoji(prob: float) -> str:
+    if prob >= 0.80: return "🚨"
+    if prob >= 0.60: return "🔴"
+    if prob >= 0.40: return "🟡"
+    return "🟢"
+
+
+def _risk_color(prob: float) -> str:
+    if prob >= 0.80: return "#dc2626"
+    if prob >= 0.60: return "#ea580c"
+    if prob >= 0.40: return "#ca8a04"
+    return "#16a34a"
+
+
+def _risk_css_class(prob: float) -> str:
+    if prob >= 0.80: return "risk-critical"
+    if prob >= 0.60: return "risk-high"
+    if prob >= 0.40: return "risk-medium"
+    return "risk-low"
+
+
+def _customer_story(prob: float, risk: str) -> str:
+    """Plain-English headline about what the score means for this customer."""
+    if prob >= 0.85:
+        return (
+            "This customer is in serious trouble. The warning signs are stacking up — "
+            "low engagement, friction with support, or a very short runway. "
+            "Without a targeted intervention in the next few days, they're likely gone."
+        )
+    if prob >= 0.65:
+        return (
+            "Red flags are showing. This customer hasn't reached the point of no return, "
+            "but the trajectory is moving in the wrong direction. A focused outreach "
+            "this week could change the outcome."
+        )
+    if prob >= 0.40:
+        return (
+            "There are a few early signals worth watching. Nothing alarming yet, "
+            "but this customer would benefit from a proactive check-in to make sure "
+            "they're getting value from the product."
+        )
+    if prob >= 0.20:
+        return (
+            "This customer looks stable. Engagement is solid and there are no major "
+            "friction signals. Keep up the good work and look for ways to deepen "
+            "the relationship."
+        )
+    return (
+        "This is a healthy, engaged customer. They're getting real value from the "
+        "product. Consider whether there's an opportunity to expand their usage "
+        "or turn them into an advocate."
+    )
+
+
+# ── Plotly helpers ────────────────────────────────────────────────────────────
+def _gauge(prob: float) -> go.Figure:
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
-        value=prob * 100,
-        title={"text": "Churn Risk Score"},
+        value=round(prob * 100, 1),
+        number={"suffix": "%", "font": {"size": 36, "color": _risk_color(prob)}},
+        title={"text": "Churn Risk Score", "font": {"size": 14, "color": "#6b7280"}},
         gauge={
-            "axis": {"range": [0, 100]},
-            "bar": {"color": get_risk_color(prob)},
+            "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "#9ca3af"},
+            "bar":  {"color": _risk_color(prob), "thickness": 0.25},
+            "bgcolor": "white",
+            "borderwidth": 0,
             "steps": [
-                {"range": [0, 30], "color": "rgba(16, 185, 129, 0.2)"},
-                {"range": [30, 60], "color": "rgba(245, 158, 11, 0.2)"},
-                {"range": [60, 100], "color": "rgba(239, 68, 68, 0.2)"}
+                {"range": [0,  30], "color": "rgba(22,163,74,.12)"},
+                {"range": [30, 60], "color": "rgba(202,138,4,.12)"},
+                {"range": [60, 80], "color": "rgba(234,88,12,.12)"},
+                {"range": [80,100], "color": "rgba(220,38,38,.12)"},
             ],
             "threshold": {
-                "line": {"color": "#ef4444", "width": 4},
-                "thickness": 0.8,
-                "value": 60
-            }
+                "line": {"color": "#dc2626", "width": 2},
+                "thickness": 0.75,
+                "value": 60,
+            },
         },
-        number={"suffix": "%", "font": {"size": 32, "color": get_risk_color(prob)}}
     ))
-    fig.update_layout(height=350, margin=dict(l=20, r=20, t=80, b=20))
+    fig.update_layout(
+        height=240,
+        margin={"t": 30, "b": 0, "l": 20, "r": 20},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
     return fig
 
-def create_driver_chart(drivers: list):
-    if not drivers:
-        return None
-    
-    importance = [0.45, 0.30, 0.20][:len(drivers)]
-    colors = ["#ef4444", "#f59e0b", "#3b82f6"][:len(drivers)]
-    
-    fig = go.Figure(data=[
-        go.Bar(
-            y=drivers,
-            x=importance,
-            orientation="h",
-            marker=dict(color=colors),
-            text=[f"{v:.0%}" for v in importance],
-            textposition="outside",
-        )
-    ])
+
+def _before_after_chart(before: float, after: float, change_pct: float) -> go.Figure:
+    labels = ["Before intervention", "After intervention"]
+    values = [round(before * 100, 1), round(after * 100, 1)]
+    colors = [_risk_color(before), _risk_color(after)]
+
+    fig = go.Figure(go.Bar(
+        x=labels,
+        y=values,
+        marker_color=colors,
+        text=[f"{v:.1f}%" for v in values],
+        textposition="outside",
+        width=0.4,
+    ))
     fig.update_layout(
-        title="Churn Risk Drivers",
-        xaxis_title="Impact",
-        height=300,
-        margin=dict(l=200, r=80, t=50, b=20),
+        title=f"Simulated impact of +{change_pct:.0f}% usage increase",
+        yaxis={"title": "Churn Probability (%)", "range": [0, max(values) * 1.3]},
+        xaxis={"title": ""},
+        height=320,
+        margin={"t": 50, "b": 40, "l": 50, "r": 20},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
         showlegend=False,
     )
     return fig
 
-def create_comparison_chart(before: float, after: float):
-    fig = go.Figure(data=[
-        go.Bar(
-            x=["Current Risk", "After Change"],
-            y=[before * 100, after * 100],
-            marker_color=[get_risk_color(before), get_risk_color(after)],
-            text=[f"{before*100:.1f}%", f"{after*100:.1f}%"],
-            textposition="outside",
+
+# ── Page sections ─────────────────────────────────────────────────────────────
+def _render_header() -> None:
+    st.markdown("""
+    <div class="header-band">
+        <h1>📊 AI Customer Churn Intelligence</h1>
+        <p>Predict churn risk · Understand why · Decide what to do next</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _render_inputs() -> tuple[float, float, float]:
+    """Render the customer input sliders and return (v1, v2, v3)."""
+    st.markdown("### 👤 Customer Profile")
+    st.caption("Adjust the sliders to match this customer's metrics.")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        v1 = st.slider(
+            "📈 Monthly Usage Hours",
+            min_value=0, max_value=100, value=50,
+            help="How many hours per month does this customer actively use the product?",
         )
-    ])
-    fig.update_layout(
-        title="Impact of Usage Increase",
-        yaxis_title="Churn Probability (%)",
-        height=350,
-        showlegend=False,
+        st.caption("0 = no engagement  •  100 = power user")
+    with c2:
+        v2 = st.slider(
+            "🎫 Support Tickets / Month",
+            min_value=0, max_value=15, value=5,
+            help="Average number of support tickets raised each month.",
+        )
+        st.caption("0 = self-sufficient  •  15 = constant friction")
+    with c3:
+        v3 = st.slider(
+            "📅 Tenure (months)",
+            min_value=0, max_value=60, value=24,
+            help="How many months has this customer been with you?",
+        )
+        st.caption("0 = brand new  •  60 = 5-year loyal customer")
+
+    return float(v1), float(v2), float(v3)
+
+
+def _render_result(result: Dict[str, Any], v1: float, v2: float, v3: float) -> None:
+    """Render the full analysis result panel."""
+    ds   = result.get("ds_output", {})
+    expl = result.get("explanation", "")
+    prob = float(ds.get("churn_probability", 0))
+    risk = ds.get("risk_level", "Unknown")
+    drivers   = ds.get("drivers", [])
+    interp    = ds.get("interpretation", "")
+    conf      = float(ds.get("confidence_score", 0))
+    pctile    = float(ds.get("percentile", 0))
+
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    st.markdown("### 🔍 Analysis Results")
+
+    # ── Customer story headline ──
+    css_class = _risk_css_class(prob)
+    story     = _customer_story(prob, risk)
+    st.markdown(
+        f'<div class="{css_class}">'
+        f'<strong>{_risk_emoji(prob)} {risk} Risk — {prob*100:.1f}% Churn Probability</strong>'
+        f'<br><br>{story}</div>',
+        unsafe_allow_html=True,
     )
-    return fig
 
-def analyze_customer(v1: float, v2: float, v3: float):
-    try:
-        if not (0 <= v1 <= 100 and 0 <= v2 <= 15 and 0 <= v3 <= 60):
-            st.error("❌ Invalid values. Check slider ranges.")
-            return None
-        
-        with st.spinner("🔄 Analyzing customer..."):
-            res = requests.post(
-                f"{API}/analyze",
-                params={"v1": v1, "v2": v2, "v3": v3},
-                timeout=30
-            )
-        
-        if res.status_code == 400:
-            st.error(f"❌ Invalid input: {res.json().get('detail', 'Unknown error')}")
-            return None
-        elif res.status_code != 200:
-            st.error(f"❌ Backend error ({res.status_code}). Please try again.")
-            return None
-        
-        return res.json()
-    
-    except requests.Timeout:
-        st.error("⏱️ Request timeout. Backend might be loading. Please try again.")
-        return None
-    except requests.ConnectionError:
-        st.error("🔌 Connection error. Check if backend is online.")
-        return None
-    except Exception as e:
-        st.error(f"❌ Error: {str(e)}")
-        return None
+    st.markdown("")  # spacer
 
-def simulate_intervention(v1: float, v2: float, v3: float, change_percent: float):
-    try:
-        change = change_percent / 100.0
-        
-        with st.spinner("🔄 Running simulation..."):
-            res = requests.post(
-                f"{API}/simulate",
-                params={"v1": v1, "v2": v2, "v3": v3, "change": change},
-                timeout=30
-            )
-        
-        if res.status_code == 400:
-            st.error(f"❌ Invalid input: {res.json().get('detail', 'Unknown error')}")
-            return None
-        elif res.status_code != 200:
-            st.error(f"❌ Backend error ({res.status_code}). Please try again.")
-            return None
-        
-        return res.json()
-    
-    except requests.Timeout:
-        st.error("⏱️ Simulation timeout. Please try again.")
-        return None
-    except requests.ConnectionError:
-        st.error("🔌 Connection error. Check if backend is online.")
-        return None
-    except Exception as e:
-        st.error(f"❌ Simulation error: {str(e)}")
-        return None
+    # ── Metrics row ──
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Churn Probability", f"{prob*100:.1f}%")
+    m2.metric("Risk Level",        risk)
+    m3.metric("Model Confidence",  f"{conf*100:.0f}%")
+    m4.metric("Risk Percentile",   f"Top {pctile:.0f}%")
 
-def render_header():
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        st.markdown("# 📊 Churn Intelligence Platform")
-        st.markdown("*AI-Powered Prediction & Retention Strategy*")
-    with col3:
-        backend_status = check_backend()
-        if backend_status:
-            st.success("Backend Connected", icon="✅")
-        else:
-            st.error("Backend Offline", icon="❌")
+    # ── Gauge + interpretation ──
+    g_col, i_col = st.columns([1, 1])
+    with g_col:
+        st.plotly_chart(_gauge(prob), use_container_width=True, key="gauge_chart")
+    with i_col:
+        st.markdown("#### What this score means")
+        st.markdown(f"**{interp}**")
+        st.markdown("<br>", unsafe_allow_html=True)
 
-def single_analysis_page():
-    st.markdown("## 👤 Single Customer Analysis")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        v1 = st.slider("Monthly Usage Hours", 0.0, 100.0, 50.0, step=5.0, key="usage_slider")
-    with col2:
-        v2 = st.slider("Support Tickets", 0.0, 15.0, 5.0, step=1.0, key="tickets_slider")
-    with col3:
-        v3 = st.slider("Tenure (Months)", 0.0, 60.0, 24.0, step=1.0, key="tenure_slider")
-    
-    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-    
-    if st.button("🔍 Analyze", use_container_width=True, key="analyze_btn"):
-        result = analyze_customer(v1, v2, v3)
-        if result:
-            st.session_state.analysis_result = {
-                "data": result,
-                "v1": v1,
-                "v2": v2,
-                "v3": v3
-            }
-    
-    # Display analysis results if available
-    if st.session_state.analysis_result is not None:
-        result = st.session_state.analysis_result["data"]
-        stored_v1 = st.session_state.analysis_result["v1"]
-        stored_v2 = st.session_state.analysis_result["v2"]
-        stored_v3 = st.session_state.analysis_result["v3"]
-        
-        ds = result.get("ds_output", {})
-        prob = ds.get("churn_probability", 0)
-        risk = ds.get("risk_level", "Unknown")
-        drivers = ds.get("drivers", [])
-        explanation = result.get("explanation", "")
-        
-        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-        
-        metric_col1, metric_col2, metric_col3 = st.columns(3)
-        with metric_col1:
-            st.metric("Churn Probability", f"{prob*100:.1f}%")
-        with metric_col2:
-            st.markdown(f"<div style='text-align: center; padding-top: 10px;'><p style='font-size: 12px; margin-bottom: 5px;'>RISK LEVEL</p><p class='risk-{'high' if prob >= 0.6 else 'medium' if prob >= 0.3 else 'low'}'>{get_risk_label(prob)}</p></div>", unsafe_allow_html=True)
-        with metric_col3:
-            st.metric("Drivers Identified", len(drivers))
-        
-        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-        
-        chart_col1, chart_col2 = st.columns([1.2, 1])
-        with chart_col1:
-            st.plotly_chart(create_gauge_chart(prob), use_container_width=True, key="gauge_chart")
-        with chart_col2:
-            if drivers:
-                st.plotly_chart(create_driver_chart(drivers), use_container_width=True, key="driver_chart")
-        
-        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-        st.markdown("### 🤖 AI-Generated Retention Strategy")
-        st.info(explanation)
-        
-        # ============ WHAT-IF SIMULATION - FIXED PROPERLY ============
-        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-        st.markdown("### 🎯 What-If Simulation")
-        
-        sim_col1, sim_col2 = st.columns([1, 1])
-        
-        with sim_col1:
-            # Slider with persistent session state - NO PAGE RELOAD
-            slider_value = st.slider(
-                "Increase Usage by (%)",
-                0, 100,
-                st.session_state.sim_slider_value,
-                step=5,
-                key="simulation_slider_final"
-            )
-            st.session_state.sim_slider_value = slider_value
-        
-        with sim_col2:
-            simulate_btn = st.button(
-                "📊 Simulate Impact",
-                use_container_width=True,
-                key="simulate_btn_final"
-            )
-        
-        # Show simulation results
-        if simulate_btn:
-            sim = simulate_intervention(stored_v1, stored_v2, stored_v3, st.session_state.sim_slider_value)
-            
-            if sim:
-                before_prob = sim.get("before", prob)
-                after_prob = sim.get("after", prob)
-                impact = sim.get("impact", 0)
-                
-                st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-                
-                sim_metric1, sim_metric2, sim_metric3 = st.columns(3)
-                with sim_metric1:
-                    st.metric("New Probability", f"{after_prob*100:.1f}%")
-                with sim_metric2:
-                    st.metric("Risk Change", f"{impact*100:.1f}%")
-                with sim_metric3:
-                    st.metric("Improvement", f"{abs(impact)*100:.1f}%")
-                
+        st.markdown("**Risk signals detected:**")
+        driver_html = " ".join(
+            f'<span class="driver-pill">{d}</span>' for d in drivers
+        )
+        st.markdown(driver_html, unsafe_allow_html=True)
+
+    # ── AI Explanation ──
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    st.markdown("### 🧠 AI Retention Strategy")
+    with st.expander("Read the full analysis and action plan", expanded=True):
+        st.markdown(expl)
+
+    # ── What-if simulation ──
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    st.markdown("### 🎯 What-If Simulation")
+    st.caption("Estimate how much churn risk would drop if this customer increased their usage.")
+
+    sim_change = st.slider(
+        "Simulate usage increase (%)",
+        min_value=5, max_value=100, value=30, step=5,
+        key="sim_slider",
+    )
+
+    if st.button("▶  Run Simulation", key="sim_btn"):
+        with st.spinner("Running simulation …"):
+            try:
+                sim = _simulate(v1, v2, v3, float(sim_change))
+                before = float(sim["before"])
+                after  = float(sim["after"])
+                impact = float(sim["impact"])
+                impr   = abs(sim.get("metadata", {}).get("improvement_percent", abs(impact * 100)))
+
+                sc1, sc2, sc3 = st.columns(3)
+                sc1.metric("Risk Before", f"{before*100:.1f}%")
+                sc2.metric("Risk After",  f"{after*100:.1f}%",  delta=f"{impact*100:+.1f}%")
+                sc3.metric("Reduction",   f"{impr:.1f}%")
+
                 st.plotly_chart(
-                    create_comparison_chart(before_prob, after_prob),
+                    _before_after_chart(before, after, float(sim_change)),
                     use_container_width=True,
-                    key="comparison_final"
+                    key="sim_chart",
                 )
 
-def batch_upload_page():
-    st.markdown("## 📁 Batch Customer Analysis")
-    st.info("📋 Upload CSV with columns: v1, v2, v3 (or usage_hours, support_tickets, tenure_months)")
-    
-    uploaded_file = st.file_uploader("Choose CSV file", type="csv")
-    
-    if uploaded_file:
+                if impact < -0.15:
+                    st.success(
+                        f"✅ **Strong impact.** Raising usage by {sim_change}% could cut "
+                        f"churn risk by {abs(impact)*100:.1f} percentage points."
+                    )
+                elif impact < 0:
+                    st.info(
+                        "ℹ️ **Moderate impact.** Usage improvement helps, but other factors "
+                        "may have more leverage — check the driver list above."
+                    )
+                else:
+                    st.warning(
+                        "⚠️ **Limited impact.** Usage alone may not move the needle here.  "
+                        "Focus on addressing the specific risk drivers listed."
+                    )
+
+            except Exception as exc:
+                st.error(f"Simulation failed: {exc}")
+
+
+def _render_single_analysis_page() -> None:
+    """Main single-customer analysis page."""
+    v1, v2, v3 = _render_inputs()
+
+    run_col, _ = st.columns([1, 3])
+    with run_col:
+        run_clicked = st.button("🔍  Analyse This Customer", type="primary", use_container_width=True)
+
+    if run_clicked:
+        st.session_state["state"] = _S.LOADING
+        with st.spinner("Thinking … this usually takes 5–10 seconds …"):
+            try:
+                t0 = time.time()
+                result = _analyze(v1, v2, v3)
+                elapsed = time.time() - t0
+
+                st.session_state["result"]        = result
+                st.session_state["state"]         = _S.SUCCESS
+                st.session_state["error_msg"]     = None
+                st.session_state["last_run"]      = datetime.now()
+                st.session_state["analyses_done"] += 1
+
+                st.success(f"✅ Analysis complete in {elapsed:.1f} s")
+
+            except ValueError as exc:
+                st.session_state["state"]     = _S.ERROR
+                st.session_state["error_msg"] = str(exc)
+            except ConnectionError:
+                st.session_state["state"]     = _S.ERROR
+                st.session_state["error_msg"] = (
+                    "Cannot reach the backend API.  "
+                    "It may still be waking up — wait 30 seconds and try again."
+                )
+            except TimeoutError:
+                st.session_state["state"]     = _S.ERROR
+                st.session_state["error_msg"] = (
+                    "The request timed out.  The backend is probably waking up on "
+                    "Render's free tier (takes ~30 s).  Please try again in a moment."
+                )
+            except Exception as exc:
+                st.session_state["state"]     = _S.ERROR
+                st.session_state["error_msg"] = str(exc)
+
+    # ── Show error if any ──
+    if st.session_state["state"] == _S.ERROR:
+        err = st.session_state.get("error_msg", "Unknown error")
+        st.error(f"❌ {err}")
+
+    # ── Show result ──
+    if st.session_state["state"] == _S.SUCCESS and st.session_state["result"]:
+        _render_result(st.session_state["result"], v1, v2, v3)
+
+
+def _render_batch_page() -> None:
+    """Batch CSV upload page."""
+    st.markdown("## 📁 Batch Analysis")
+    st.markdown("Upload a CSV to analyse multiple customers in one go.")
+
+    st.info(
+        "**CSV format:** columns must be named `v1`, `v2`, `v3`  "
+        "(or `usage_hours`, `support_tickets`, `tenure_months`)."
+    )
+
+    sample_csv = "usage_hours,support_tickets,tenure_months\n75,2,36\n15,10,8\n50,5,24"
+    st.download_button("📄 Download sample CSV", sample_csv, "sample.csv", "text/csv")
+
+    uploaded = st.file_uploader("Choose your CSV file", type="csv")
+    if uploaded is None:
+        return
+
+    try:
+        df = pd.read_csv(uploaded)
+    except Exception as exc:
+        st.error(f"Could not read CSV: {exc}")
+        return
+
+    # Normalise column names
+    col_map = {
+        "usage_hours": "v1", "usage": "v1",
+        "support_tickets": "v2", "tickets": "v2",
+        "tenure_months": "v3", "tenure": "v3",
+    }
+    df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+
+    missing = {"v1", "v2", "v3"} - set(df.columns)
+    if missing:
+        st.error(f"❌ CSV is missing columns: {', '.join(missing)}")
+        return
+
+    st.success(f"✅ Loaded {len(df)} customers")
+
+    progress = st.progress(0)
+    status   = st.empty()
+    results  = []
+
+    for idx, row in df.iterrows():
         try:
-            df = pd.read_csv(uploaded_file)
-            
-            columns_map = {
-                'v1': 'v1', 'usage_hours': 'v1', 'usage': 'v1',
-                'v2': 'v2', 'support_tickets': 'v2', 'tickets': 'v2',
-                'v3': 'v3', 'tenure_months': 'v3', 'tenure': 'v3'
-            }
-            
-            df_renamed = df.rename(columns={old: new for old, new in columns_map.items() if old in df.columns})
-            
-            if 'v1' not in df_renamed.columns or 'v2' not in df_renamed.columns or 'v3' not in df_renamed.columns:
-                st.error("❌ CSV must have: v1, v2, v3")
-                return
-            
-            st.info(f"Processing {len(df_renamed)} customers...")
-            progress = st.progress(0)
-            results = []
-            
-            for idx, row in df_renamed.iterrows():
-                result = analyze_customer(
-                    float(row.get("v1", 0)),
-                    float(row.get("v2", 0)),
-                    float(row.get("v3", 0))
-                )
-                
-                if result:
-                    ds = result.get("ds_output", {})
-                    results.append({
-                        "ID": idx + 1,
-                        "V1": round(row.get("v1", 0), 2),
-                        "V2": round(row.get("v2", 0), 2),
-                        "V3": round(row.get("v3", 0), 2),
-                        "Churn %": round(ds.get("churn_probability", 0) * 100, 1),
-                        "Risk": ds.get("risk_level", "Unknown")
-                    })
-                
-               
-                time.sleep(0.5)
+            res = _analyze(float(row["v1"]), float(row["v2"]), float(row["v3"]))
+            ds  = res.get("ds_output", {})
+            results.append({
+                "Customer #":    idx + 1,
+                "Usage hrs":     round(float(row["v1"]), 1),
+                "Support tkts":  int(round(float(row["v2"]))),
+                "Tenure (mo)":   int(round(float(row["v3"]))),
+                "Churn %":       round(float(ds.get("churn_probability", 0)) * 100, 1),
+                "Risk":          ds.get("risk_level", "Unknown"),
+                "Interpretation": ds.get("interpretation", ""),
+            })
+        except Exception as exc:
+            status.warning(f"⚠️ Row {idx+1} failed: {exc}")
 
-                progress.progress((idx + 1) / len(df_renamed))
-            
-            if results:
-                results_df = pd.DataFrame(results)
-                
-                st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-                st.markdown("### 📊 Summary")
-                
-                high = len(results_df[results_df["Churn %"] >= 60])
-                medium = len(results_df[(results_df["Churn %"] >= 30) & (results_df["Churn %"] < 60)])
-                low = len(results_df[results_df["Churn %"] < 30])
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("🔴 High Risk", high)
-                with col2:
-                    st.metric("🟡 Medium Risk", medium)
-                with col3:
-                    st.metric("🟢 Low Risk", low)
-                with col4:
-                    st.metric("📈 Avg Churn", f"{results_df['Churn %'].mean():.1f}%")
-                
-                st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-                
-                fig = px.histogram(
-                    results_df,
-                    x="Churn %",
-                    nbins=15,
-                    title="Churn Distribution",
-                    color_discrete_sequence=["#3b82f6"]
-                )
-                fig.update_layout(height=350, showlegend=False)
-                st.plotly_chart(fig, use_container_width=True)
-                
-                st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-                st.dataframe(results_df.sort_values("Churn %", ascending=False), use_container_width=True)
-                
-                csv = results_df.to_csv(index=False)
-                st.download_button(
-                    "📥 Download Results",
-                    csv,
-                    f"churn_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    "text/csv"
-                )
-        except Exception as e:
-            st.error(f"❌ Error processing CSV: {str(e)}")
+        progress.progress((idx + 1) / len(df))
+        status.text(f"Processing customer {idx+1} of {len(df)} …")
+        time.sleep(0.25)   # gentle rate limiting
 
-def main():
-    render_header()
-    
+    progress.empty()
+    status.empty()
+
+    if not results:
+        st.error("No valid records could be processed.")
+        return
+
+    rdf = pd.DataFrame(results)
+
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    st.markdown("### Summary")
+
+    high   = len(rdf[rdf["Churn %"] >= 60])
+    medium = len(rdf[(rdf["Churn %"] >= 30) & (rdf["Churn %"] < 60)])
+    low    = len(rdf[rdf["Churn %"] < 30])
+
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("🔴 High Risk",   high)
+    s2.metric("🟡 Medium Risk", medium)
+    s3.metric("🟢 Low Risk",    low)
+    s4.metric("📊 Avg Churn",   f"{rdf['Churn %'].mean():.1f}%")
+
+    fig = px.histogram(
+        rdf, x="Churn %", nbins=20,
+        title="Churn Probability Distribution",
+        color_discrete_sequence=["#3b82f6"],
+    )
+    fig.update_layout(height=300, paper_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(fig, use_container_width=True, key="batch_hist")
+
+    st.dataframe(
+        rdf.sort_values("Churn %", ascending=False),
+        use_container_width=True, height=400,
+    )
+
+    st.download_button(
+        "📥 Download results (CSV)",
+        rdf.to_csv(index=False),
+        f"churn_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        "text/csv",
+    )
+
+
+def _render_sidebar(backend_online: bool, v1: float = 0, v2: float = 0, v3: float = 0) -> str:
     with st.sidebar:
-        st.markdown("### 📌 Navigation")
-        page = st.radio("Select Mode", ["Single Analysis", "Batch Upload"], label_visibility="collapsed")
-        
+        st.markdown("## 🗺️ Navigation")
+        page = st.radio(
+            "Select mode",
+            ["Single Analysis", "Batch Upload"],
+            label_visibility="collapsed",
+        )
+
         st.markdown("---")
-        st.markdown("### 📚 About")
+
+        # Backend status
+        if backend_online:
+            st.success("🟢 Backend: online")
+        else:
+            st.warning(
+                "🔴 Backend offline.\n\n"
+                "If you're using Render's free tier, wait ~30 s for it to wake up, "
+                "then try again."
+            )
+
+        # Live profile insights
+        if v1 or v2 or v3:
+            from backend.core.validators import get_profile_insights
+            try:
+                insights = get_profile_insights(v1, v2, v3)
+                st.markdown("---")
+                st.markdown("**Profile insights:**")
+                for tip in insights:
+                    st.markdown(f"- {tip}")
+            except Exception:
+                pass
+
+        st.markdown("---")
         st.markdown("""
-        **AI Customer Churn Intelligence**
-        
-        - ML Churn Prediction
-        - LLM Retention Strategy
-        - What-If Simulation
-        - Batch Processing
-        """)
-    
-    st.markdown("---")
-    
+**How It Works**
+1. Enter customer metrics
+2. Click Analyse
+3. Read the AI strategy
+4. Run what-if simulations
+
+**Risk signals to watch:**
+- 📉 Usage < 20 h/mo → disengagement
+- 🎫 Tickets > 7/mo → friction
+- 🆕 Tenure < 18 mo → evaluation window
+""")
+
+        st.markdown("---")
+        analyses = st.session_state.get("analyses_done", 0)
+        if analyses > 0:
+            st.metric("Analyses this session", analyses)
+
+    return page
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+def main() -> None:
+    _init_state()
+
+    # Check backend health once per session (not on every rerun)
+    if "backend_ok" not in st.session_state:
+        st.session_state["backend_ok"] = _backend_ok()
+    backend_ok: bool = st.session_state["backend_ok"]
+
+    # We need v1/v2/v3 for the sidebar insights — read from session or use defaults
+    result = st.session_state.get("result")
+    last_v1 = float(result["ds_output"].get("churn_probability", 0)) if result else 0.0
+
+    page = _render_sidebar(backend_ok)
+
+    _render_header()
+
     if page == "Single Analysis":
-        single_analysis_page()
+        _render_single_analysis_page()
     else:
-        batch_upload_page()
-    
-    st.markdown("---")
-    st.markdown("<p style='text-align: center; color: #808080; font-size: 11px;'>© 2025 Churn Intelligence | FastAPI + Streamlit</p>", unsafe_allow_html=True)
+        _render_batch_page()
+
+    st.markdown("""
+    <div class="divider"></div>
+    <div style='text-align:center;color:#9ca3af;font-size:12px;padding-bottom:20px;'>
+        Churn Intelligence Platform · FastAPI + Streamlit · Built with ❤️
+    </div>
+    """, unsafe_allow_html=True)
+
 
 if __name__ == "__main__":
     main()
