@@ -1,11 +1,11 @@
 fastapi
-uvicorn
+uvicorn[standard]
+pydanti
 streamlit
 requests
-scikit-learn
-python-dotenv
-groq
-numpy
-matplotlib
 plotly
 pandas
+scikit-learn
+numpy
+python-dotenv
+groq
