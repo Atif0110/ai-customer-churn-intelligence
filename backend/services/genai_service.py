@@ -1,241 +1,208 @@
+"""
+LLM explanation service.
+
+Tries the configured LLM provider (Groq / OpenAI / Gemini) with
+exponential-backoff retries.  If every attempt fails, it silently falls
+back to a deterministic, rule-based explanation so the user always gets
+a useful response — never a blank screen or a raw exception.
+"""
+
+from __future__ import annotations
+
 import logging
 import time
-from typing import Dict, Any, Optional
-from backend.llm.factory import get_llm
+from typing import Any, Dict, Optional
+
 from backend.core.exceptions import LLMServiceError
 
 logger = logging.getLogger(__name__)
 
 
-class EnhancedGenAIService:
-    """
-    Generate business-friendly explanations with fallback strategies
-    Implements retry logic and graceful degradation
-    """
-    
-    def __init__(self, max_retries: int = 2, timeout: int = 30):
-        """
-        Initialize GenAI service
-        
-        Args:
-            max_retries: Number of retry attempts on failure
-            timeout: Request timeout in seconds
-        """
-        self.max_retries = max_retries
-        self.timeout = timeout
-        
-        try:
-            self.llm = get_llm()
-            logger.info("✅ LLM service initialized successfully")
-        except Exception as e:
-            logger.warning(f"⚠️ LLM initialization warning: {e}")
-            self.llm = None
-    
-    def generate_explanation(self, ds_output: Dict[str, Any]) -> str:
-        """
-        Generate AI explanation of churn risk with fallback
-        
-        Args:
-            ds_output: ML model output containing:
-                - churn_probability: float (0-1)
-                - risk_level: str ("Low", "Medium", "High")
-                - drivers: List[str] of risk factors
-        
-        Returns:
-            Human-readable explanation (always returns something)
-        """
-        try:
-            # Try LLM with retries
-            return self._generate_with_retry(ds_output)
-        
-        except LLMServiceError as e:
-            logger.warning(f"⚠️ LLM service failed: {e}. Using fallback.")
-            return self._fallback_explanation(ds_output)
-        
-        except Exception as e:
-            logger.error(f"❌ Unexpected error in explanation generation: {e}")
-            return self._fallback_explanation(ds_output)
-    
-    def _generate_with_retry(self, ds_output: Dict[str, Any]) -> str:
-        """
-        Try LLM multiple times with exponential backoff
-        
-        Raises:
-            LLMServiceError: If all retries exhausted
-        """
-        last_error: Optional[str] = None
-        
-        for attempt in range(self.max_retries):
-            try:
-                prompt = self._build_optimized_prompt(ds_output)
-                
-                logger.info(f"🔄 LLM attempt {attempt + 1}/{self.max_retries}...")
-                
-                start_time = time.time()
-                result = self.llm.generate(prompt)
-                elapsed = time.time() - start_time
-                
-                # Validate response
-                if result and len(result.strip()) > 20:
-                    logger.info(
-                        f"✅ LLM succeeded on attempt {attempt + 1}/{self.max_retries} "
-                        f"in {elapsed*1000:.1f}ms"
-                    )
-                    return result
-                else:
-                    last_error = f"Response too short: {len(result) if result else 0} chars"
-                    logger.warning(f"⚠️ Attempt {attempt + 1}: {last_error}")
-            
-            except Exception as e:
-                last_error = str(e)
-                logger.warning(
-                    f"⚠️ LLM attempt {attempt + 1}/{self.max_retries} failed: {e}"
-                )
-                
-                # Exponential backoff
-                if attempt < self.max_retries - 1:
-                    wait_time = 2 ** attempt  # 1s, 2s, etc.
-                    logger.info(f"⏳ Retrying in {wait_time} second(s)...")
-                    time.sleep(wait_time)
-        
-        # All retries exhausted
-        error_msg = f"All {self.max_retries} retry attempts failed: {last_error}"
-        logger.error(f"❌ {error_msg}")
-        raise LLMServiceError(error_msg)
-    
-    def _build_optimized_prompt(self, ds_output: Dict[str, Any]) -> str:
-        """
-        Build high-quality prompt for better LLM output
-        Optimized for conciseness and clarity
-        """
-        drivers = ", ".join(ds_output.get("drivers", []))
-        prob = ds_output.get("churn_probability", 0)
-        risk = ds_output.get("risk_level", "Unknown")
-        
-        prompt = f"""You are an expert customer success strategist analyzing churn risk.
+# ---------------------------------------------------------------------------
+# Prompt builder
+# ---------------------------------------------------------------------------
 
-CUSTOMER STATUS:
-- Churn Risk Score: {prob*100:.1f}%
-- Risk Level: {risk}
-- Key Risk Drivers: {drivers}
+def _build_prompt(ds: Dict[str, Any]) -> str:
+    drivers_text = "\n".join(f"  • {d}" for d in ds.get("drivers", []))
+    prob = ds.get("churn_probability", 0)
+    risk = ds.get("risk_level", "Unknown")
+    conf = ds.get("confidence_score", 0)
 
-YOUR TASK - Provide 3 things:
+    return f"""You are a senior customer-success strategist briefing your team.
 
-1. **Why They Might Leave** (2 sentences max)
-   - Explain churn drivers from customer perspective
-   - Use business language, not metrics
+CUSTOMER SNAPSHOT
+─────────────────
+Churn probability : {prob*100:.1f}%
+Risk tier         : {risk}
+Model confidence  : {conf*100:.0f}%
+Key risk signals  :
+{drivers_text}
 
-2. **Two Retention Actions** (2 specific bullets)
-   - What should success team do THIS WEEK?
-   - Make them concrete and measurable
-   - Prioritize based on risk level
+YOUR BRIEF — respond in exactly this format, no extras:
 
-3. **Business Impact** (1 sentence)
-   - What does losing this customer cost?
-   - Frame as revenue or strategic impact
+**Why they might leave** (2 sentences, customer's perspective)
+[your text here]
 
-TONE GUIDELINES:
-- Conversational but professional
-- Data-driven and specific
-- Action-focused and urgent
-- Avoid jargon; use clear business language
+**Two actions for this week** (2 concrete bullet points)
+• [action 1]
+• [action 2]
 
-RISK-BASED URGENCY:
-- High Risk: Emphasize immediate action needed
-- Medium Risk: Recommend proactive engagement
-- Low Risk: Focus on expansion opportunity"""
-        
-        return prompt
-    
-    def _fallback_explanation(self, ds_output: Dict[str, Any]) -> str:
-        """
-        Rule-based fallback explanation when LLM fails
-        Uses templates + customer data to generate meaningful response
-        Ensures users always get helpful output
-        """
-        prob = ds_output.get("churn_probability", 0)
-        risk = ds_output.get("risk_level", "Unknown")
-        drivers = ds_output.get("drivers", [])
-        
-        # Define detailed explanations for common drivers
-        driver_explanations = {
-            "Low product engagement": (
-                "The customer isn't using the product enough to realize its value. "
-                "They may not understand key features or haven't fully onboarded yet. "
-                "Typical engagement increase: 25-35% reduction in churn."
-            ),
-            "High support load": (
-                "Frequent support requests indicate the customer is struggling. "
-                "This signals product friction, unclear documentation, or unmet needs. "
-                "Resolving core issues typically reduces churn by 30-40%."
-            ),
-            "Early-stage customer": (
-                "Customers in their first 18 months have 2-3x higher churn. "
-                "This is the critical retention window. Strong onboarding is key. "
-                "Success programs reduce early-stage churn by 40-50%."
-            ),
-            "Stable customer profile": (
-                "This customer shows healthy engagement and low risk factors. "
-                "Focus on deepening the relationship and expanding usage. "
-                "Opportunity to increase lifetime value."
-            ),
-        }
-        
-        # Build narrative response
-        risk_emoji = "🚨" if prob >= 0.85 else "🔴" if prob >= 0.65 else "🟡" if prob >= 0.35 else "🟢"
-        
-        explanation = f"""## {risk_emoji} Churn Risk Analysis
+**Business impact if they churn** (1 sentence, revenue/strategic framing)
+[your text here]
 
-**Status: {risk} Risk ({prob*100:.1f}% Churn Probability)**
-
-### Why They Might Leave
-
+TONE: direct, empathetic, business-friendly.  No jargon.  No markdown
+headings other than the bold labels above.  Urgency must match the risk tier.
 """
-        
-        # Add driver-specific context
-        if drivers:
-            for driver in drivers:
-                context = driver_explanations.get(
-                    driver,
-                    f"{driver} is a significant churn indicator."
-                )
-                explanation += f"- **{driver}**: {context}\n"
-        else:
-            explanation += "- No major risk factors identified\n"
-        
-        explanation += f"""
-### Recommended Actions This Week
 
-1. **Reach Out**
-   - Schedule success check-in (30 min)
-   - Understand current challenges and priorities
-   - Identify gaps between needs and product usage
 
-2. **Create Quick Win**
-   - Implement one requested feature
-   - Resolve a top support pain point
-   - Demonstrate tangible progress
+# ---------------------------------------------------------------------------
+# Rule-based fallback
+# ---------------------------------------------------------------------------
 
-### Business Impact
+_DRIVER_CONTEXT = {
+    "Low product engagement": (
+        "The customer is barely touching the product — they haven't yet connected "
+        "its value to their day-to-day work.  Without intervention, out-of-sight "
+        "quickly becomes out-of-mind when renewal time arrives."
+    ),
+    "High support load": (
+        "Frequent support tickets are a distress signal.  Something is causing "
+        "repeated friction — whether that's a confusing UI, missing features, or "
+        "an integration issue — and the customer is absorbing that pain each time."
+    ),
+    "Early-stage customer": (
+        "New customers are still deciding whether your product fits their workflow.  "
+        "The first 12–18 months are the highest-churn window; a single bad experience "
+        "can tip the scales toward cancellation before they ever reach the 'loyal' stage."
+    ),
+    "Stable customer profile": (
+        "No major red flags here.  The customer is engaged and largely self-sufficient.  "
+        "The opportunity is to deepen the relationship and expand usage."
+    ),
+}
 
-Customers at this risk level often become either loyal advocates or churn within 30-60 days. 
-Proactive engagement now prevents revenue loss and builds long-term loyalty.
+def _fallback_explanation(ds: Dict[str, Any]) -> str:
+    prob    = ds.get("churn_probability", 0.0)
+    risk    = ds.get("risk_level", "Unknown")
+    drivers = ds.get("drivers", [])
+
+    if prob >= 0.85:
+        urgency_line = "🚨 **Immediate action required** — this customer could leave within weeks."
+    elif prob >= 0.65:
+        urgency_line = "🔴 **Prioritise this week** — the risk is real and growing."
+    elif prob >= 0.35:
+        urgency_line = "🟡 **Schedule a check-in soon** — things aren't critical yet, but they could be."
+    else:
+        urgency_line = "🟢 **Keep doing what's working** — this customer is in good shape."
+
+    driver_block = ""
+    for d in drivers:
+        ctx = _DRIVER_CONTEXT.get(d, f"{d} is contributing to churn risk.")
+        driver_block += f"\n**{d}**\n{ctx}\n"
+
+    return f"""
+{urgency_line}
+
+**Why they might leave**
+{driver_block.strip()}
+
+**Two actions for this week**
+• Schedule a 30-minute success call — ask open questions about what's working and what isn't.  Document everything for the product team.
+• Create one concrete "quick win" — resolve their top support issue or demo a feature that directly addresses their reported pain.
+
+**Business impact if they churn**
+Customers at {risk.lower()} risk represent an active revenue threat; losing them costs not just the contract value but also the referrals and expansion revenue they would have generated.
 
 ---
-*Generated using rule-based analysis. For AI-powered insights, refresh the page.*
-"""
-        
-        logger.info("📋 Using fallback explanation (rule-based)")
-        return explanation.strip()
+*Insight generated via rule-based analysis (AI service temporarily unavailable).*
+""".strip()
 
 
-# Global service instance
-genai_service = EnhancedGenAIService()
+# ---------------------------------------------------------------------------
+# Main service
+# ---------------------------------------------------------------------------
+
+class GenAIService:
+    """
+    Wraps the LLM provider with retry logic and a fallback strategy.
+    Always returns a non-empty, human-readable explanation.
+    """
+
+    def __init__(self, max_retries: int = 2):
+        self.max_retries = max_retries
+        self._llm: Optional[Any] = None
+        self._init_llm()
+
+    def _init_llm(self) -> None:
+        """Lazy-import so the app doesn't crash on missing env vars at startup."""
+        try:
+            from backend.llm.factory import get_llm
+            self._llm = get_llm()
+            logger.info("✅ LLM provider initialised")
+        except Exception as exc:
+            logger.warning("⚠️  LLM init failed — will use fallback: %s", exc)
+            self._llm = None
+
+    # ------------------------------------------------------------------
+    def generate_explanation(self, ds_output: Dict[str, Any]) -> str:
+        """
+        Generate a retention strategy explanation.
+
+        Always returns a string — never raises.
+        """
+        if self._llm is None:
+            logger.info("LLM unavailable at startup — using fallback")
+            return _fallback_explanation(ds_output)
+
+        try:
+            return self._call_with_retry(ds_output)
+        except LLMServiceError as exc:
+            logger.warning("LLM exhausted retries: %s  →  using fallback", exc)
+            return _fallback_explanation(ds_output)
+        except Exception as exc:
+            logger.error("Unexpected LLM error: %s  →  using fallback", exc, exc_info=True)
+            return _fallback_explanation(ds_output)
+
+    # ------------------------------------------------------------------
+    def _call_with_retry(self, ds_output: Dict[str, Any]) -> str:
+        prompt      = _build_prompt(ds_output)
+        last_error  = ""
+
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                logger.info("🔄 LLM attempt %d/%d …", attempt, self.max_retries)
+                t0     = time.time()
+                result = self._llm.generate(prompt)
+                elapsed = (time.time() - t0) * 1000
+
+                if result and len(result.strip()) > 30:
+                    logger.info("✅ LLM succeeded in %.0f ms (attempt %d)", elapsed, attempt)
+                    return result.strip()
+
+                last_error = "Response was empty or too short"
+                logger.warning("⚠️  Attempt %d: %s", attempt, last_error)
+
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning("⚠️  LLM attempt %d failed: %s", attempt, exc)
+
+            if attempt < self.max_retries:
+                wait = 2 ** (attempt - 1)          # 1 s, 2 s, …
+                logger.info("⏳ Retrying in %d s …", wait)
+                time.sleep(wait)
+
+        raise LLMServiceError(
+            f"All {self.max_retries} LLM attempts failed.  Last error: {last_error}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton + thin wrapper used by orchestrator
+# ---------------------------------------------------------------------------
+
+_service = GenAIService()
 
 
 def generate_explanation(ds_output: Dict[str, Any]) -> str:
-    """
-    Wrapper function for backward compatibility
-    Generates AI explanation with fallback support
-    """
-    return genai_service.generate_explanation(ds_output)
+    """Public entry point — keeps backward compatibility."""
+    return _service.generate_explanation(ds_output)
