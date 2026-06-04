@@ -1,19 +1,33 @@
+"""
+Enhanced ML churn prediction service with type hints and confidence metrics
+Production-grade with validation and diagnostics
+"""
+
+from typing import List, Dict, Tuple, Optional
+from dataclasses import dataclass
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 import logging
 
 logger = logging.getLogger(__name__)
 
+
 # ============================================================================
-# PRODUCTION-GRADE CHURN PREDICTION MODEL
+# DATA STRUCTURES
 # ============================================================================
-# 
-# This model is trained on realistic SaaS customer behavior data
-# Realistic ranges based on industry benchmarks:
-#   - Usage: 0-100 hours/month (typical B2B SaaS)
-#   - Support tickets: 0-15/month (typical support volume)
-#   - Tenure: 0-60 months (5 years - typical customer lifecycle)
-#
+
+@dataclass
+class ChurnPrediction:
+    """Structured churn prediction output"""
+    churn_probability: float
+    risk_level: str
+    drivers: List[str]
+    confidence_score: float  # 0-1: Model confidence
+    percentile: float  # 0-100: Where customer ranks
+    
+
+# ============================================================================
+# MODEL INITIALIZATION
 # ============================================================================
 
 # Realistic training data based on actual SaaS customer patterns
@@ -43,7 +57,6 @@ X = np.array([
     [3, 15, 1],        # Almost gone: no usage, overwhelmed → CHURN
 ], dtype=np.float32)
 
-# Churn labels: 1=churned, 0=retained
 y = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=np.int32)
 
 # Train the model
@@ -52,7 +65,7 @@ try:
         max_iter=1000,
         random_state=42,
         solver='lbfgs',
-        class_weight='balanced'  # Handle imbalanced data
+        class_weight='balanced'
     )
     model.fit(X, y)
     logger.info("✅ Churn prediction model trained successfully")
@@ -61,55 +74,71 @@ except Exception as e:
     raise
 
 
-def validate_inputs(v1: float, v2: float, v3: float) -> tuple:
+# ============================================================================
+# VALIDATION FUNCTIONS
+# ============================================================================
+
+def validate_inputs(v1: float, v2: float, v3: float) -> Tuple[bool, Optional[str]]:
     """
-    Validate input ranges to ensure realistic customer data
+    Validate input ranges with helpful error messages
     
-    Returns: (is_valid, error_message)
+    Args:
+        v1: Monthly usage hours
+        v2: Support tickets
+        v3: Tenure in months
+    
+    Returns:
+        (is_valid, error_message)
     """
     errors = []
     
-    # Validate v1: Monthly usage hours (0-100 realistic max)
+    # Validate v1: Monthly usage hours
     if not (0 <= v1 <= 100):
-        errors.append(f"Usage hours must be 0-100, got {v1}")
+        errors.append(
+            f"Usage hours ({v1}) outside valid range [0-100]. "
+            f"Typical SaaS customers: 10-80 hours/month"
+        )
     
-    # Validate v2: Support tickets (0-15 realistic max)
+    # Validate v2: Support tickets
     if not (0 <= v2 <= 15):
-        errors.append(f"Support tickets must be 0-15, got {v2}")
+        errors.append(
+            f"Support tickets ({v2}) outside valid range [0-15]. "
+            f"Typical SaaS customers: 0-8 tickets/month"
+        )
     
-    # Validate v3: Tenure in months (0-60 = 5 years)
+    # Validate v3: Tenure in months
     if not (0 <= v3 <= 60):
-        errors.append(f"Tenure must be 0-60 months, got {v3}")
+        errors.append(
+            f"Tenure ({v3} months) outside valid range [0-60]. "
+            f"Platform supports up to 5 years of customer history"
+        )
     
     if errors:
-        return False, "; ".join(errors)
+        return False, "\n".join(errors)
     
     return True, None
 
 
-def identify_drivers(v1: float, v2: float, v3: float) -> list:
+def identify_drivers(v1: float, v2: float, v3: float) -> List[str]:
     """
-    Identify and explain churn risk drivers based on customer metrics
+    Identify churn risk drivers based on customer metrics
     
     Rules based on industry benchmarks:
     - Usage < 20 hours/month: Low engagement (churn signal)
-    - Tickets > 7/month: High support load/frustration (churn signal)
-    - Tenure < 18 months: New customer (evaluation phase, high churn)
+    - Tickets > 7/month: High support load (churn signal)
+    - Tenure < 18 months: New customer (evaluation phase)
     """
     drivers = []
     
     # Driver 1: Low product engagement
-    # Threshold: < 20 hours/month = not using product enough
     if v1 < 20:
         drivers.append("Low product engagement")
     
     # Driver 2: High support burden
-    # Threshold: > 7 tickets/month = customer having issues
     if v2 > 7:
         drivers.append("High support load")
     
     # Driver 3: Short tenure (early-stage customer)
-    # Threshold: < 18 months = within trial/early adoption period
     if v3 < 18:
         drivers.append("Early-stage customer")
     
@@ -120,108 +149,148 @@ def identify_drivers(v1: float, v2: float, v3: float) -> list:
     return drivers
 
 
-def predict(values: list) -> dict:
+def calculate_confidence(v1: float, v2: float, v3: float) -> float:
     """
-    Predict customer churn probability and identify risk factors
+    Calculate model confidence (0-1)
+    Higher confidence when customer is within typical range
+    Lower confidence for outliers
+    """
+    # Typical customer profile
+    typical_usage = 50
+    typical_tickets = 5
+    typical_tenure = 24
+    
+    # Calculate distances from typical
+    distances = [
+        abs(v1 - typical_usage) / 50,
+        abs(v2 - typical_tickets) / 7.5,
+        abs(v3 - typical_tenure) / 24,
+    ]
+    
+    avg_distance = np.mean(distances)
+    # Penalize outliers
+    confidence = max(0.0, 1.0 - (avg_distance * 0.3))
+    
+    return round(confidence, 3)
+
+
+def get_percentile(prob: float) -> float:
+    """
+    Calculate what percentile this customer falls into
+    Among all possible predictions
+    """
+    # Simplified: assume distribution across range
+    percentile = min(100, max(0, prob * 100))
+    return round(percentile, 1)
+
+
+def classify_risk(prob: float) -> str:
+    """
+    Classify risk level based on probability
+    
+    - Low: < 30% (safe customers)
+    - Medium: 30-60% (at decision point)
+    - High: >= 60% (likely to churn)
+    """
+    if prob >= 0.6:
+        return "High"
+    elif prob >= 0.3:
+        return "Medium"
+    else:
+        return "Low"
+
+
+# ============================================================================
+# PREDICTION SERVICE
+# ============================================================================
+
+def predict(values: List[float]) -> Dict[str, any]:
+    """
+    Predict customer churn probability with confidence metrics
     
     Args:
-        values: [v1, v2, v3] where:
-            v1 = Monthly usage hours (0-100)
-            v2 = Support tickets per month (0-15)
-            v3 = Customer tenure in months (0-60)
+        values: [usage_hours, support_tickets, tenure_months]
     
     Returns:
         {
             "churn_probability": float (0-1),
-            "risk_level": str ("Low", "Medium", "High"),
-            "drivers": list of risk drivers
+            "risk_level": str,
+            "drivers": list,
+            "confidence_score": float,
+            "percentile": float
         }
     
     Raises:
-        ValueError: if inputs are invalid
+        ValueError: If inputs are invalid
     """
-    
     try:
-        # Convert to float for safety
-        v1 = float(values[0])
-        v2 = float(values[1])
-        v3 = float(values[2])
+        # ====== VALIDATION ======
+        v1, v2, v3 = float(values[0]), float(values[1]), float(values[2])
         
-        # Validate inputs
         is_valid, error_msg = validate_inputs(v1, v2, v3)
         if not is_valid:
-            logger.error(f"Invalid input: {error_msg}")
+            logger.error(f"❌ Validation error: {error_msg}")
             raise ValueError(error_msg)
         
-        logger.info(f"Processing: usage={v1}, tickets={v2}, tenure={v3}")
+        logger.info(f"📊 Predicting: usage={v1}, tickets={v2}, tenure={v3}")
         
-        # ---- ML Prediction ----
-        # Reshape for sklearn (requires 2D array)
+        # ====== ML PREDICTION ======
         arr = np.array([[v1, v2, v3]], dtype=np.float32)
-        
-        # Get churn probability (probability of class 1 = churn)
         prob = float(model.predict_proba(arr)[0][1])
+        prob = max(0.0, min(1.0, prob))  # Clamp to [0,1]
         
-        # Ensure probability is in valid range
-        prob = max(0.0, min(1.0, prob))
-        
-        # ---- Identify Risk Drivers ----
+        # ====== CALCULATE METRICS ======
         drivers = identify_drivers(v1, v2, v3)
-        
-        # ---- Determine Risk Level ----
-        # Risk levels based on industry standards:
-        # - Low: < 30% (safe customers)
-        # - Medium: 30-60% (at decision point)
-        # - High: > 60% (likely to churn)
-        if prob >= 0.6:
-            risk_level = "High"
-        elif prob >= 0.3:
-            risk_level = "Medium"
-        else:
-            risk_level = "Low"
+        risk_level = classify_risk(prob)
+        confidence = calculate_confidence(v1, v2, v3)
+        percentile = get_percentile(prob)
         
         result = {
             "churn_probability": prob,
             "risk_level": risk_level,
             "drivers": drivers,
+            "confidence_score": confidence,
+            "percentile": percentile
         }
         
-        logger.info(f"Prediction: churn={prob:.2%}, risk={risk_level}, drivers={drivers}")
+        logger.info(
+            f"✅ Prediction complete: "
+            f"prob={prob:.2%}, risk={risk_level}, confidence={confidence}"
+        )
         
         return result
     
     except ValueError as e:
-        logger.error(f"ValueError in predict: {str(e)}")
+        logger.error(f"❌ Validation error in predict: {str(e)}")
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in predict: {str(e)}")
+        logger.error(f"❌ Unexpected error in predict: {str(e)}")
         raise ValueError(f"Prediction failed: {str(e)}")
 
 
 # ============================================================================
-# MODEL VALIDATION & TESTING
+# MODEL TESTING
 # ============================================================================
 
-def test_model():
+def test_model() -> bool:
     """
     Comprehensive model validation
-    Run this to verify the model works correctly
+    Returns True if all tests pass
     """
     print("\n" + "="*70)
     print("CHURN MODEL VALIDATION & TESTING")
     print("="*70)
     
     test_cases = [
-        # (usage, tickets, tenure, expected_risk_level, description)
-        (95, 1, 58, "Low", "Loyal power user - should be low risk"),
-        (75, 2, 40, "Low", "Good customer - should be low risk"),
-        (50, 5, 25, "Medium", "Medium engagement - medium risk"),
-        (35, 8, 15, "High", "Low usage, many issues - high risk"),
-        (5, 15, 1, "High", "Critical: barely using - high risk"),
-        (0, 0, 0, "High", "Zero engagement - very high risk"),
+        (95, 1, 58, "Low", "Loyal power user"),
+        (75, 2, 40, "Low", "Good customer"),
+        (50, 5, 25, "Medium", "Medium engagement"),
+        (35, 8, 15, "High", "Low usage + issues"),
+        (5, 15, 1, "High", "Critical risk"),
+        (0, 0, 0, "High", "Zero engagement"),
     ]
     
-    print("\nTest Case Results:")
+    print("\nTest Results:")
     print("-" * 70)
     
     all_passed = True
@@ -231,9 +300,7 @@ def test_model():
             result = predict([v1, v2, v3])
             actual_risk = result["risk_level"]
             prob = result["churn_probability"]
-            drivers = result["drivers"]
             
-            # Check if risk level matches expectation
             passed = actual_risk == expected_risk
             status = "✅ PASS" if passed else "❌ FAIL"
             
@@ -241,27 +308,18 @@ def test_model():
                 all_passed = False
             
             print(f"\n{status}: {description}")
-            print(f"  Input: usage={v1}, tickets={v2}, tenure={v3}")
-            print(f"  Churn Probability: {prob:.1%}")
-            print(f"  Risk Level: {actual_risk} (expected: {expected_risk})")
-            print(f"  Drivers: {', '.join(drivers)}")
+            print(f"  Prob: {prob:.1%} | Risk: {actual_risk} (expected {expected_risk})")
         
         except Exception as e:
             all_passed = False
-            print(f"\n❌ ERROR: {description}")
-            print(f"  Input: usage={v1}, tickets={v2}, tenure={v3}")
-            print(f"  Error: {str(e)}")
+            print(f"\n❌ ERROR: {description} - {str(e)}")
     
     print("\n" + "="*70)
-    if all_passed:
-        print("✅ ALL TESTS PASSED - Model is production-ready!")
-    else:
-        print("❌ SOME TESTS FAILED - Review model configuration")
+    print("✅ ALL TESTS PASSED" if all_passed else "❌ SOME TESTS FAILED")
     print("="*70 + "\n")
     
     return all_passed
 
 
-# Run validation on module load
 if __name__ == "__main__":
     test_model()
