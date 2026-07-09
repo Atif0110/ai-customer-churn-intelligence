@@ -109,7 +109,13 @@ def root() -> Dict[str, Any]:
     }
 
 
-@app.get("/health", response_model=HealthResponse, tags=["Monitoring"])
+@app.api_route(
+    "/health",
+    methods=["GET", "HEAD"],
+    response_model=HealthResponse,
+    tags=["Monitoring"],
+)
+
 def health() -> HealthResponse:
     return HealthResponse(
         status="healthy",
