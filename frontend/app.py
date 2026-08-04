@@ -70,18 +70,17 @@ st.markdown("""
     .header-band h1 { margin:0 0 8px 0; font-size:30px; font-weight:800; letter-spacing:-.01em; }
     .header-band p  { margin:0; opacity:.78; font-size:15px; font-weight:400; max-width:560px; }
 
-    /* ── Force readable text inside bordered "cards" only (this is where the
-         original white-on-white bug occurred). Scoping it here — rather than
-         to the whole app — avoids fighting the header band's own white-text
-         rule with a specificity war. ── */
-    [data-testid="stVerticalBlockBorderWrapper"] :is(p, span, li, label, h1, h2, h3, h4, h5),
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMarkdownContainer"],
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMarkdownContainer"] *,
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCaptionContainer"],
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stWidgetLabel"],
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stWidgetLabel"] * {
-        color: var(--ink-700) !important;
+    /* ── Section headings in the white/light areas get the accent blue,
+         so they pop and stay clearly readable. Applied globally (not
+         scoped to a specific container testid) so it isn't dependent on
+         Streamlit-version-specific internals. ── */
+    [data-testid="stMarkdownContainer"] h3,
+    [data-testid="stMarkdownContainer"] h4 {
+        color: var(--accent) !important;
     }
+    /* Body text, captions, and widget labels fall back to the theme's own
+       textColor (set in .streamlit/config.toml) — no override needed here,
+       which avoids fighting other rules over specificity. */
     .header-band, .header-band * { color: white !important; }
     .header-band .eyebrow { color: #a5b4fc !important; }
     .driver-pill { color: var(--accent) !important; }
