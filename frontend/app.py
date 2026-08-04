@@ -70,13 +70,28 @@ st.markdown("""
     .header-band h1 { margin:0 0 8px 0; font-size:30px; font-weight:800; letter-spacing:-.01em; }
     .header-band p  { margin:0; opacity:.78; font-size:15px; font-weight:400; max-width:560px; }
 
+    /* ── Force readable text everywhere in main content, regardless of the
+         visitor's OS/browser color-scheme preference ── */
+    .stApp, .stApp p, .stApp span, .stApp li, .stApp label,
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5,
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stMarkdownContainer"] * ,
+    [data-testid="stCaptionContainer"],
+    [data-testid="stWidgetLabel"] ,
+    [data-testid="stWidgetLabel"] * {
+        color: var(--ink-700) !important;
+    }
+    .header-band, .header-band * { color: white !important; }
+    .header-band .eyebrow { color: #a5b4fc !important; }
+    .driver-pill { color: var(--accent) !important; }
+
     /* ── Cards: style Streamlit's native st.container(border=True) ── */
     [data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 14px !important;
         box-shadow: var(--shadow-sm);
         margin-bottom: 20px;
         transition: box-shadow .15s ease;
-        background: var(--surface);
+        background: var(--surface) !important;
     }
     [data-testid="stVerticalBlockBorderWrapper"]:hover { box-shadow: var(--shadow-md); }
 
