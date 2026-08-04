@@ -71,18 +71,26 @@ st.markdown("""
     .header-band p  { margin:0; opacity:.78; font-size:15px; font-weight:400; max-width:560px; }
 
     /* ── Section headings in the white/light areas get the accent blue,
-         so they pop and stay clearly readable. Applied globally (not
-         scoped to a specific container testid) so it isn't dependent on
-         Streamlit-version-specific internals. ── */
+         so they pop and stay clearly readable. ── */
     [data-testid="stMarkdownContainer"] h3,
     [data-testid="stMarkdownContainer"] h4 {
         color: var(--accent) !important;
     }
-    /* Body text, captions, and widget labels fall back to the theme's own
-       textColor (set in .streamlit/config.toml) — no override needed here,
-       which avoids fighting other rules over specificity. */
-    .header-band, .header-band * { color: white !important; }
-    .header-band .eyebrow { color: #a5b4fc !important; }
+
+    /* ── Force dark, readable text for all widget labels, captions, and
+         body copy in the main content area. This is the actual fix for
+         labels/captions rendering invisible — relying on the theme alone
+         was not enough in this environment. ── */
+    [data-testid="stWidgetLabel"] p,
+    [data-testid="stWidgetLabel"] label,
+    [data-testid="stCaptionContainer"] p,
+    [data-testid="stCaptionContainer"],
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li,
+    [data-testid="stMarkdownContainer"] strong {
+        color: var(--ink-700) !important;
+    }
+
     .driver-pill { color: var(--accent) !important; }
 
     /* ── Metric cards ── */
@@ -182,6 +190,12 @@ st.markdown("""
         from { opacity: 0; transform: translateY(6px); }
         to   { opacity: 1; transform: translateY(0); }
     }
+
+    /* ── This must stay the LAST rule in the stylesheet: it guarantees the
+         header band's white text always wins, even against the dark-text
+         rules above that share the same selector specificity. ── */
+    .header-band, .header-band * { color: white !important; }
+    .header-band .eyebrow { color: #a5b4fc !important; }
 </style>
 """, unsafe_allow_html=True)
 
