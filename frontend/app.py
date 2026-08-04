@@ -70,15 +70,16 @@ st.markdown("""
     .header-band h1 { margin:0 0 8px 0; font-size:30px; font-weight:800; letter-spacing:-.01em; }
     .header-band p  { margin:0; opacity:.78; font-size:15px; font-weight:400; max-width:560px; }
 
-    /* ── Force readable text everywhere in main content, regardless of the
-         visitor's OS/browser color-scheme preference ── */
-    .stApp, .stApp p, .stApp span, .stApp li, .stApp label,
-    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5,
-    [data-testid="stMarkdownContainer"],
-    [data-testid="stMarkdownContainer"] * ,
-    [data-testid="stCaptionContainer"],
-    [data-testid="stWidgetLabel"] ,
-    [data-testid="stWidgetLabel"] * {
+    /* ── Force readable text inside bordered "cards" only (this is where the
+         original white-on-white bug occurred). Scoping it here — rather than
+         to the whole app — avoids fighting the header band's own white-text
+         rule with a specificity war. ── */
+    [data-testid="stVerticalBlockBorderWrapper"] :is(p, span, li, label, h1, h2, h3, h4, h5),
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMarkdownContainer"],
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMarkdownContainer"] *,
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCaptionContainer"],
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stWidgetLabel"],
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stWidgetLabel"] * {
         color: var(--ink-700) !important;
     }
     .header-band, .header-band * { color: white !important; }
@@ -166,7 +167,9 @@ st.markdown("""
     .stButton > button[kind="primary"] {
         background: var(--accent);
         border: none;
+        color: white !important;
     }
+    .stButton > button[kind="primary"] p { color: white !important; }
     .stButton > button[kind="primary"]:hover { background:#4338ca; }
 
     /* ── Sidebar ── */
